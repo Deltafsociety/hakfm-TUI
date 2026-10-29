@@ -4,9 +4,14 @@ A Rust terminal radio receiver for hacker focus, ambient work sessions, and late
 
 > This is an independent client, not an official HAK.FM project. It currently uses direct SomaFM MP3 streams for its station presets. It does not scrape or depend on HAK.FM's website.
 
+![screenshot of the project](screenshots/screenshot)
+
+
+
+
+
 ## Features
 
-- Dark terminal UI with green/cyan cyberpunk styling
 - 18 curated radio presets including DEF CON Radio, Drone Zone, Groove Salad, and Deep Space One
 - Keyboard navigation and station switching
 - Search by station name, genre, or description
@@ -14,21 +19,85 @@ A Rust terminal radio receiver for hacker focus, ambient work sessions, and late
 - Playback status, elapsed session timer, and connection-ended detection
 - No browser required
 
-## Requirements
 
+# You have two ways to get this working L
+
+
+# Easiest method : Download the pre-built binary (aka the sober way)
+https://github.com/Deltafsociety/hakfm-TUI/releases/download/v1.0.0.0/hakfm
+
+
+
+## OR Build from source ( like all champs do :D)
+> Follow the below steps:
+
+
+## Step 1
 On Arch Linux:
 
 ```bash
 sudo pacman -S rust mpv
 ```
 
-## Run
+on Ubuntu ( debian based):
 
 ```bash
-cargo run --release
+sudo apt install rust mpv
+```
+---
+
+## Step 2 
+Download the project zip file
+
+[DOWNLOAD ZIP](https://github.com/Deltafsociety/hakfm-TUI/archive/refs/heads/main.zip)
+
+---
+
+## step 3
+open a terminal and navigate the *extracted* folder
+
+```bash 
+cd YOUR_DOWNLOAD_PATH
 ```
 
+```bash
+unzip hakfm-TUI-main.zip
+```
+
+
+```bash
+cd hakfm-TUI-main
+```
+
+RUN this :
+
+```bash 
+chmod +x ./build.sh
+```
+> This gives the install script execution rights.
+
+then after the script is done you can run
+ ```bash 
+hakfm
+```
+OR
+```bash
+radio
+```
+
+in order to launch the application
+
+# Step 4
+
+- Star this project!
+- feel free to open issues
+- enjoy your deep focous sessions
+- visit my [Open Focus](https://github.com/Deltafsociety/open-focus) Project :D
+
+
 ## Controls
+
+> both dorky style and Legend VIM style ( for champs ) are implemented :D 
 
 | Key | Action |
 |---|---|
