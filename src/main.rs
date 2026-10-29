@@ -57,6 +57,12 @@ fn stations() -> Vec<Station> {
         ("Sonic Universe", "JAZZ", "Modern jazz and fusion.", "sonicuniverse"),
         ("Beat Blender", "ELECTRONIC", "Downtempo and electronic grooves.", "beatblender"),
         ("The Trip", "PSYCHEDELIC", "Psychedelic electronic journeys.", "thetrip"),
+        ("Lush", "CHILL", "Atmospheric vocals and electronic music.", "lush"),
+        ("Underground 80s", "SYNTH", "80s underground alternative.", "u80s"),
+        ("Illinois Street Lounge", "LOUNGE", "Vintage lounge and exotica.", "illstreet"),
+        ("Fluid", "DOWNTEMPO", "Downtempo electronic music.", "fluid"),
+        ("PopTron", "INDIE", "Indie pop and alternative.", "poptron"),
+        ("Black Rock FM", "FESTIVAL", "Burning Man community radio.", "brfm"),
     ];
     rows.iter().map(|(name, genre, description, slug)| {
         let slug = slug.trim();
@@ -183,8 +189,7 @@ impl App {
     }
 
     fn toggle_pause(&mut self) {
-        // Keep the implementation dependency-light: pause/resume is achieved by restarting
-        // the selected station. mpv IPC can be added later for seamless pause semantics.
+
         if let Some(idx) = self.current {
             if self.paused {
                 self.play_station(idx);
