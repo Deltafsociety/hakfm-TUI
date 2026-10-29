@@ -23,7 +23,7 @@ A Rust terminal radio receiver for hacker focus, ambient work sessions, and late
 # You have two ways to get this working
 
 
-# Easiest method : Download the pre-built binary (aka the sober way)
+## Easiest method : Download the pre-built binary (NOT RECOMMENDED)
 https://github.com/Deltafsociety/hakfm-TUI/releases/download/v1.0.0.0/hakfm
 
 the open a terminal and navigate where the downloaded binary is
@@ -39,7 +39,7 @@ and then
 ```
 
 
-## OR Build from source ( like all champs do :D)
+## OR Build from source ( RECOMMENDED like all champs do :D)
 > Follow the below steps:
 
 
