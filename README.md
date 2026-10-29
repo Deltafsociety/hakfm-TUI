@@ -26,6 +26,17 @@ A Rust terminal radio receiver for hacker focus, ambient work sessions, and late
 # Easiest method : Download the pre-built binary (aka the sober way)
 https://github.com/Deltafsociety/hakfm-TUI/releases/download/v1.0.0.0/hakfm
 
+the open a terminal and navigate where the downloaded binary is
+and run :
+```bash
+chmod +x hakfm
+```
+
+and then 
+
+```bash
+./hakfm
+```
 
 
 ## OR Build from source ( like all champs do :D)
