@@ -20,7 +20,7 @@ A Rust terminal radio receiver for hacker focus, ambient work sessions, and late
 - No browser required
 
 
-# You have two ways to get this working L
+# You have two ways to get this working
 
 
 # Easiest method : Download the pre-built binary (aka the sober way)
