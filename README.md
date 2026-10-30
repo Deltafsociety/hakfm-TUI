@@ -5,7 +5,7 @@ A Rust terminal radio receiver for hacker focus, ambient work sessions, and late
 > This is an independent client, not an official HAK.FM project. It currently uses direct SomaFM MP3 streams for its station presets. It does not scrape or depend on HAK.FM's website.
 
 ![screenshot of the project](screenshots/screenshot2.png)
-![screenshot of the project](screenshots/screenshot2.png
+![screenshot of the project](screenshots/screenshot2.png)
 
 
 
