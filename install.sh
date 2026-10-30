@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-set -e
-
 # ==============================================================================
-# HAK.FM TUI - One-line Installer for Linux & macOS
+# HAK.FM TUI - Universal One-line Installer for Linux & macOS
 # Repository: https://github.com/Deltafsociety/hakfm-TUI
 # ==============================================================================
+set -e
+
+REPO="Deltafsociety/hakfm-TUI"
+LATEST_RELEASE_URL="https://github.com/$REPO/releases/latest"
 
 echo ""
 echo "  _   _   ___   _  __  _____ __  __ "
@@ -15,56 +17,171 @@ echo " |_| |_||_| |_||_|\_\ |_|   |_|  |_|"
 echo "  Terminal Radio for Hacker Focus   "
 echo ""
 
-OS="$(uname -s)"
-ARCH="$(uname -m)"
+# 1. Detect OS and Architecture
+OS_RAW="$(uname -s)"
+ARCH_RAW="$(uname -m)"
 
-# 1. Check audio engine (mpv)
-if ! command -v mpv >/dev/null 2>&1; then
-    echo "[-] Notice: 'mpv' is required for stream playback."
-    if [ "$OS" = "Darwin" ]; then
-        echo "    Install with: brew install mpv"
-    elif [ -f /etc/arch-release ]; then
-        echo "    Install with: sudo pacman -S mpv"
-    elif [ -f /etc/debian_version ]; then
-        echo "    Install with: sudo apt install mpv"
-    elif [ -f /etc/fedora-release ]; then
-        echo "    Install with: sudo dnf install mpv"
-    fi
-    echo ""
-fi
+case "$OS_RAW" in
+    Linux)  OS="linux" ;;
+    Darwin) OS="darwin" ;;
+    *)      OS="unknown" ;;
+esac
+
+case "$ARCH_RAW" in
+    x86_64|amd64)   ARCH="x86_64" ;;
+    aarch64|arm64)
+        if [ "$OS" = "darwin" ]; then
+            ARCH="arm64"
+        else
+            ARCH="aarch64"
+        fi
+        ;;
+    *)              ARCH="$ARCH_RAW" ;;
+esac
 
 BIN_DIR="$HOME/.local/bin"
 mkdir -p "$BIN_DIR"
+TARGET_BIN="$BIN_DIR/hakfm"
 
-# 2. Prefer building with Cargo if installed, otherwise download release binary
-if command -v cargo >/dev/null 2>&1; then
-    echo "[+] Found Rust / Cargo. Building and installing latest release from source..."
-    cargo install --git https://github.com/Deltafsociety/hakfm-TUI.git --bin hakfm --force
+# Parse flags (e.g. --build to force compiling from source)
+FORCE_BUILD=0
+for arg in "$@"; do
+    if [ "$arg" = "--build" ] || [ "$arg" = "-b" ]; then
+        FORCE_BUILD=1
+    fi
+done
+
+INSTALLED=0
+
+# 2. Try pre-built binary first (Fast, no compiler or toolchain needed)
+if [ "$FORCE_BUILD" -eq 0 ] && [ "$OS" != "unknown" ]; then
+    echo "[+] Looking for pre-built binary for $OS ($ARCH)..."
+
+    CANDIDATES=()
+    if [ "$OS" = "darwin" ]; then
+        CANDIDATES+=(
+            "hakfm-darwin-universal"
+            "hakfm-darwin-${ARCH}"
+            "hakfm-darwin"
+        )
+    else
+        CANDIDATES+=(
+            "hakfm-linux-${ARCH}"
+        )
+        if [ "$ARCH" = "x86_64" ]; then
+            CANDIDATES+=("hakfm")
+        fi
+    fi
+
+    TMP_BIN="$(mktemp "${TMPDIR:-/tmp}/hakfm.XXXXXX")"
+    for ASSET in "${CANDIDATES[@]}"; do
+        DOWNLOAD_URL="$LATEST_RELEASE_URL/download/$ASSET"
+        if curl -fSL --progress-bar "$DOWNLOAD_URL" -o "$TMP_BIN" 2>/dev/null; then
+            chmod +x "$TMP_BIN"
+            # Verify the binary runs on this host (checks libc compatibility)
+            if "$TMP_BIN" --version >/dev/null 2>&1; then
+                mv -f "$TMP_BIN" "$TARGET_BIN"
+                chmod +x "$TARGET_BIN"
+                ln -sf "$TARGET_BIN" "$BIN_DIR/radio"
+                INSTALLED=1
+                echo "[✓] Downloaded and verified pre-built binary ($ASSET)."
+                break
+            else
+                rm -f "$TMP_BIN"
+            fi
+        fi
+    done
+    rm -f "$TMP_BIN" 2>/dev/null || true
+fi
+
+# 3. Fallback to building from source if binary wasn't installed
+if [ "$INSTALLED" -eq 0 ]; then
+    if [ "$FORCE_BUILD" -eq 1 ]; then
+        echo "[+] Building from source requested..."
+    else
+        echo "[-] Pre-built binary not available or incompatible for this device."
+        echo "[+] Falling back to compiling from source..."
+    fi
+
+    # Ensure Rust toolchain is available and at least Rust 1.85 (required for modern dependencies)
+    NEED_RUSTUP=0
+    if ! command -v cargo >/dev/null 2>&1 || ! command -v rustc >/dev/null 2>&1; then
+        NEED_RUSTUP=1
+    else
+        # Check rustc version
+        RUST_VER="$(rustc --version 2>/dev/null | awk '{print $2}')"
+        RUST_MINOR="$(echo "$RUST_VER" | cut -d. -f2)"
+        if [ -n "$RUST_MINOR" ] && [ "$RUST_MINOR" -lt 85 ]; then
+            echo "[-] Detected Rust $RUST_VER (apt/system package manager version is too old for Rust 2024 dependencies)."
+            NEED_RUSTUP=1
+        fi
+    fi
+
+    if [ "$NEED_RUSTUP" -eq 1 ]; then
+        if command -v rustup >/dev/null 2>&1; then
+            echo "[+] Updating Rust toolchain via rustup..."
+            rustup update stable
+        else
+            echo "[+] Installing official modern Rust toolchain via rustup..."
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+        fi
+        if [ -f "$HOME/.cargo/env" ]; then
+            # shellcheck disable=SC1091
+            source "$HOME/.cargo/env"
+        fi
+        export PATH="$HOME/.cargo/bin:$PATH"
+    fi
+
+    echo "[+] Compiling and installing latest hakfm from source..."
+    cargo install --git "https://github.com/$REPO.git" --bin hakfm --force --locked
+
     CARGO_BIN="$(command -v hakfm || echo "$HOME/.cargo/bin/hakfm")"
     if [ -x "$CARGO_BIN" ]; then
-        ln -sf "$CARGO_BIN" "$BIN_DIR/hakfm" 2>/dev/null || true
-        ln -sf "$CARGO_BIN" "$BIN_DIR/radio" 2>/dev/null || true
-    fi
-else
-    echo "[+] Cargo not found. Fetching pre-built binary..."
-    TARGET_BIN="$BIN_DIR/hakfm"
-    if curl -fSL "https://github.com/Deltafsociety/hakfm-TUI/releases/latest/download/hakfm" -o "$TARGET_BIN" 2>/dev/null || \
-       curl -fSL "https://github.com/Deltafsociety/hakfm-TUI/releases/download/v1.0.0.0/hakfm" -o "$TARGET_BIN"; then
+        cp -f "$CARGO_BIN" "$TARGET_BIN" 2>/dev/null || ln -sf "$CARGO_BIN" "$TARGET_BIN"
         chmod +x "$TARGET_BIN"
         ln -sf "$TARGET_BIN" "$BIN_DIR/radio"
-    else
-        echo "[!] Pre-built binary download failed. Please install Rust and compile with:"
-        echo "    cargo install --git https://github.com/Deltafsociety/hakfm-TUI.git"
-        exit 1
+        INSTALLED=1
     fi
 fi
 
-# 3. Ensure ~/.local/bin is in PATH
+if [ "$INSTALLED" -eq 0 ]; then
+    echo "[!] Installation failed. Please check error output above or report an issue at:"
+    echo "    https://github.com/$REPO/issues"
+    exit 1
+fi
+
+# 4. Check audio engine (mpv)
+if ! command -v mpv >/dev/null 2>&1; then
+    echo ""
+    echo "[!] Notice: 'mpv' is required for streaming audio."
+    if [ "$OS" = "darwin" ]; then
+        echo "    Install with: brew install mpv"
+    elif command -v apt-get >/dev/null 2>&1; then
+        echo "    Install with: sudo apt update && sudo apt install -y mpv"
+    elif command -v pacman >/dev/null 2>&1; then
+        echo "    Install with: sudo pacman -S mpv"
+    elif command -v dnf >/dev/null 2>&1; then
+        echo "    Install with: sudo dnf install -y mpv"
+    elif command -v zypper >/dev/null 2>&1; then
+        echo "    Install with: sudo zypper install mpv"
+    elif command -v apk >/dev/null 2>&1; then
+        echo "    Install with: sudo apk add mpv"
+    else
+        echo "    Please install 'mpv' using your system package manager."
+    fi
+fi
+
+# 5. Ensure ~/.local/bin is in PATH across shells
 for RC in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
     if [ -f "$RC" ] && ! grep -Fq '.local/bin' "$RC"; then
         printf '\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$RC"
     fi
 done
+if [ -d "$HOME/.config/fish" ] && [ -f "$HOME/.config/fish/config.fish" ]; then
+    if ! grep -Fq '.local/bin' "$HOME/.config/fish/config.fish"; then
+        printf '\nfish_add_path -a $HOME/.local/bin\n' >> "$HOME/.config/fish/config.fish"
+    fi
+fi
 
 echo ""
 echo "[✓] HAK.FM installed successfully!"

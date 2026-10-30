@@ -53,18 +53,23 @@ cargo install --git https://github.com/Deltafsociety/hakfm-TUI.git
 ### Build From Source
 
 
-## Step 1
-On Arch Linux:
+## Step 1: Dependencies
 
-```bash
-sudo pacman -S rust mpv
-```
+**Audio Engine (`mpv`):**
+- **Ubuntu / Linux Mint / Debian:** `sudo apt update && sudo apt install -y mpv`
+- **Arch Linux:** `sudo pacman -S mpv`
+- **Fedora:** `sudo dnf install -y mpv`
+- **macOS:** `brew install mpv`
 
-on Ubuntu ( debian based):
-
-```bash
-sudo apt install rust mpv
-```
+**Rust Compiler (only if building from source):**
+- Modern dependencies require Rust 1.85+. If you don't have Rust or have an outdated distro package, install the official toolchain via `rustup`:
+  ```bash
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+  ```
+- On Arch Linux, the system package is always fresh:
+  ```bash
+  sudo pacman -S rust
+  ```
 ---
 
 ## Step 2 

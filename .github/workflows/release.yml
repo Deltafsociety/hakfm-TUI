@@ -1,0 +1,126 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux-x86_64:
+    name: Linux x86_64 (Static musl)
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - name: Install musl-tools
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Build static release binary
+        run: cargo build --release --target x86_64-unknown-linux-musl --locked
+
+      - name: Prepare assets
+        run: |
+          mkdir -p dist
+          cp target/x86_64-unknown-linux-musl/release/hakfm dist/hakfm-linux-x86_64
+          cp target/x86_64-unknown-linux-musl/release/hakfm dist/hakfm
+          chmod +x dist/*
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-linux-x86_64
+          path: dist/*
+
+  build-linux-arm64:
+    name: Linux aarch64 (ARM64)
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-musl
+
+      - name: Install Cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Build with Cross
+        run: cross build --release --target aarch64-unknown-linux-musl --locked
+
+      - name: Prepare assets
+        run: |
+          mkdir -p dist
+          cp target/aarch64-unknown-linux-musl/release/hakfm dist/hakfm-linux-aarch64
+          chmod +x dist/*
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-linux-arm64
+          path: dist/*
+
+  build-macos:
+    name: macOS (Universal & Apple Silicon)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Build for Apple Silicon & Intel
+        run: |
+          cargo build --release --target aarch64-apple-darwin --locked
+          cargo build --release --target x86_64-apple-darwin --locked
+
+      - name: Create Universal Binary
+        run: |
+          mkdir -p dist
+          cp target/aarch64-apple-darwin/release/hakfm dist/hakfm-darwin-arm64
+          cp target/x86_64-apple-darwin/release/hakfm dist/hakfm-darwin-x86_64
+          lipo -create -output dist/hakfm-darwin-universal dist/hakfm-darwin-arm64 dist/hakfm-darwin-x86_64
+          chmod +x dist/*
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-macos
+          path: dist/*
+
+  publish-release:
+    name: Publish Release Assets
+    needs: [build-linux-x86_64, build-linux-arm64, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: List downloaded assets
+        run: ls -la release-assets
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: release-assets/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
