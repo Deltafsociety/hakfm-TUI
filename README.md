@@ -1,8 +1,9 @@
-# 📻 HAK.FM TUI (v2.0)
+#  HAKFM TUI (v2.0)
 
 <div align="center">
 
 ```
+
 ██╗  ██╗ █████╗ ██╗  ██╗███████╗███╗   ███╗
 ██║  ██║██╔══██╗██║ ██╔╝██╔════╝████╗ ████║
 ███████║███████║█████╔╝ █████╗  ██╔████╔██║
@@ -27,12 +28,11 @@
 <p align="center">
   <i>Main Library View with Cyberpunk theme, live DEF CON Radio, and animated audio spectrum</i>
 </p>
-
 </div>
 
 ---
 
-### 📸 More Screenshots
+###  More Screenshots
 
 <div align="center">
 
@@ -45,25 +45,25 @@
 
 ---
 
-## ✨ Features
+##  Features
 
-- 🎧 **Curated Hacker Presets:** Tune into DEF CON Radio, MansionNET Radio, Drone Zone, Groove Salad, Deep Space One, Mission Control, Vaporwaves, and underground 80s synth.
-- 🌐 **In-TUI Live Web Search:** Browse and search thousands of global stations across every genre on [internet-radio.com](https://www.internet-radio.com/) without leaving the terminal.
-- 📊 **Animated Audio Visualizer (<kbd>v</kbd>):** Switch between **Spectrum**, **Waveform**, **Stereo VU Peak Meter**, **Matrix Dots**, or **Off** when you need maximum minimalism.
-- 🎨 **5 Curated Color Themes (<kbd>t</kbd>):**
+-  **Curated Hacker Presets:** Tune into DEF CON Radio, MansionNET Radio, Drone Zone, Groove Salad, Deep Space One, Mission Control, Vaporwaves, and underground 80s synth.
+-  **In-TUI Live Web Search:** Browse and search thousands of global stations across every genre on [internet-radio.com](https://www.internet-radio.com/) without leaving the terminal.
+-  **Animated Audio Visualizer (<kbd>v</kbd>):** Switch between **Spectrum**, **Waveform**, **Stereo VU Peak Meter**, **Matrix Dots**, or **Off** when you need maximum minimalism.
+-  **5 Curated Color Themes (<kbd>t</kbd>):**
   - `Cyberpunk` — High-voltage neon green & cyan
   - `Matrix` — Pure phosphorescent terminal green
   - `Nord` — Cool arctic frost & deep polar night
   - `Dracula` — Vampire purple & dark pastel glow
   - `Stealth` — Slate monochrome for quiet midnight sessions
-- ➕ **Custom Station Manager (<kbd>a</kbd>):** Add your own Icecast, Shoutcast, `.pls`, or `.mp3` streams in two seconds.
-- ⭐ **Favorites & Search (<kbd>s</kbd> / <kbd>/</kbd>):** Star your go-to channels and filter large libraries instantly.
-- 🪶 **Zero Bloat:** Written in 100% safe Rust. Starts in 10ms, takes ~12MB of RAM, and delegates audio decoding to the rock-solid `mpv`.
-- 🐧 **Sister-Approved Universal Compatibility:** Works seamlessly out of the box on Linux Mint, Ubuntu, Debian, Arch, Fedora, and macOS.
+-  **Custom Station Manager (<kbd>a</kbd>):** Add your own Icecast, Shoutcast, `.pls`, or `.mp3` streams in two seconds.
+-  **Favorites & Search (<kbd>s</kbd> / <kbd>/</kbd>):** Star your go-to channels and filter large libraries instantly.
+-  **Zero Bloat:** Written in 100% safe Rust. Starts in 10ms, takes ~12MB of RAM, and delegates audio decoding to the rock-solid `mpv`.
+-  **Sister-Approved Universal Compatibility:** Works seamlessly out of the box on Linux Mint, Ubuntu, Debian, Arch, Fedora, and macOS.
 
 ---
 
-## ⚡ Quick Install
+##  Quick Install
 
 The easiest way to get rolling (auto-detects your OS, architecture, and toolchain):
 
@@ -82,7 +82,7 @@ radio
 
 ---
 
-## 📦 Alternative Installations
+##  Alternative Installations
 
 <details>
 <summary><b>Option A: Download Static Pre-Built Binary</b></summary>
@@ -122,7 +122,7 @@ cd hakfm-TUI
 
 ---
 
-## 🎮 Keyboard Controls
+##  Keyboard Controls
 
 > Both normal human arrow keys and legendary Vim keys (`hjkl`) are supported — no judgment here.
 
@@ -166,7 +166,7 @@ cd hakfm-TUI
 
 ---
 
-## 🛰️ Notes & Acknowledgements
+## Notes & Acknowledgements
 
 - **Station Streams:** Stream presets are sourced from public SomaFM MP3 streams. Audio streaming is powered by `mpv`. This client does not scrape, rehost, or redistribute copyright audio.
 - **Config & Persistence:** Your custom stations, favorites, selected visualizer, and chosen theme are neatly stored in `~/.config/hakfm/config.json`.
@@ -176,7 +176,7 @@ cd hakfm-TUI
 
 <div align="center">
 
-Forged with ☕ and paranoia by **[Delta Fsociety](https://zist.digital/delta/contact-me/)**
+Forged with Nicotine and paranoia by **[Delta Fsociety](https://zist.digital/delta/contact-me/)**
 
 *`// stay paranoid, stay free`*
 
