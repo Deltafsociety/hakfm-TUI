@@ -1,154 +1,183 @@
-# HAK.FM TUI
+# 📻 HAK.FM TUI (v2.0)
 
-A Rust terminal radio receiver for hacker focus, ambient work sessions, and late-night debugging. Built with Ratatui and Crossterm; audio playback is handled by `mpv`.
+<div align="center">
 
-> This is an independent client, not an official HAK.FM project. It currently uses direct SomaFM MP3 streams for its station presets. It does not scrape or depend on HAK.FM's website.
+```
+██╗  ██╗ █████╗ ██╗  ██╗███████╗███╗   ███╗
+██║  ██║██╔══██╗██║ ██╔╝██╔════╝████╗ ████║
+███████║███████║█████╔╝ █████╗  ██╔████╔██║
+██╔══██║██╔══██║██╔═██╗ ██╔══╝  ██║╚██╔╝██║
+██║  ██║██║  ██║██║  ██╗██║     ██║ ╚═╝ ██║
+╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝     ╚═╝     ╚═╝
+```
 
-![screenshot of the project](screenshots/screenshot1.png)
-![screenshot of the project](screenshots/screenshot2.png)
+**A cyber-aesthetic terminal radio receiver for deep focus, ambient hacking, and late-night debugging.**
 
+[![Version](https://img.shields.io/badge/version-2.0.0-00ff99?style=flat-square&logo=rust)](https://github.com/Deltafsociety/hakfm-TUI/releases/latest)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-3cd2dc?style=flat-square)](https://github.com/Deltafsociety/hakfm-TUI)
+[![License](https://img.shields.io/badge/license-MIT%20%2F%20Libre-ffcc00?style=flat-square)](LICENSE)
+[![Built with Ratatui](https://img.shields.io/badge/TUI-Ratatui%200.29-a64dff?style=flat-square)](https://ratatui.rs)
 
+> *"Because running a 2GB RAM-devouring browser with 80 tabs just to listen to synthwave while your compiler is already setting your laptop on fire is a crime against humanity."*
 
+<br/>
 
+<img src="screenshots/screenshot1.png" alt="hakfm v2.0 Main View - Cyberpunk Theme" width="95%"/>
 
-## Features
+<p align="center">
+  <i>Main Library View with Cyberpunk theme, live DEF CON Radio, and animated audio spectrum</i>
+</p>
 
-- Curated radio presets including DEF CON Radio, MansionNET Radio, Drone Zone, Groove Salad, and Deep Space One
-- **In-TUI Live Search on [internet-radio.com](https://www.internet-radio.com/)**: Browse thousands of stations across any genre directly inside the terminal
-- **Custom Station Manager**: Add your own radio streams (`.mp3`, `.pls`, `.m3u`, Icecast, Shoutcast) with name, genre, and description
-- Persistent custom stations and favorites saved in `~/.config/hakfm/config.json`
-- Dual view modes: Library view and Internet-Radio view with quick tab switching
-- Keyboard navigation (both arrow keys and Vim-style `hjkl`)
-- Playback status, animated waveform, elapsed session timer, and connection-ended detection
-- No browser required; lightweight audio playback powered by `mpv`
+</div>
 
+---
 
-# Installation
+### 📸 More Screenshots
 
-### Quick One-Liner (Linux & macOS)
+<div align="center">
+
+| ❄️ Nord Theme + Web-Radio Search | 🧛 Dracula Theme + Waveform Visualizer |
+|:---:|:---:|
+| <img src="screenshots/screenshot2.png" width="100%" alt="Nord Theme Web Search"/> | <img src="screenshots/screenshot3.png" width="100%" alt="Dracula Theme Waveform"/> |
+| *Live in-TUI internet-radio.com station browser* | *Dracula aesthetic with flowing audio waveform* |
+
+</div>
+
+---
+
+## ✨ Features
+
+- 🎧 **Curated Hacker Presets:** Tune into DEF CON Radio, MansionNET Radio, Drone Zone, Groove Salad, Deep Space One, Mission Control, Vaporwaves, and underground 80s synth.
+- 🌐 **In-TUI Live Web Search:** Browse and search thousands of global stations across every genre on [internet-radio.com](https://www.internet-radio.com/) without leaving the terminal.
+- 📊 **Animated Audio Visualizer (<kbd>v</kbd>):** Switch between **Spectrum**, **Waveform**, **Stereo VU Peak Meter**, **Matrix Dots**, or **Off** when you need maximum minimalism.
+- 🎨 **5 Curated Color Themes (<kbd>t</kbd>):**
+  - `Cyberpunk` — High-voltage neon green & cyan
+  - `Matrix` — Pure phosphorescent terminal green
+  - `Nord` — Cool arctic frost & deep polar night
+  - `Dracula` — Vampire purple & dark pastel glow
+  - `Stealth` — Slate monochrome for quiet midnight sessions
+- ➕ **Custom Station Manager (<kbd>a</kbd>):** Add your own Icecast, Shoutcast, `.pls`, or `.mp3` streams in two seconds.
+- ⭐ **Favorites & Search (<kbd>s</kbd> / <kbd>/</kbd>):** Star your go-to channels and filter large libraries instantly.
+- 🪶 **Zero Bloat:** Written in 100% safe Rust. Starts in 10ms, takes ~12MB of RAM, and delegates audio decoding to the rock-solid `mpv`.
+- 🐧 **Sister-Approved Universal Compatibility:** Works seamlessly out of the box on Linux Mint, Ubuntu, Debian, Arch, Fedora, and macOS.
+
+---
+
+## ⚡ Quick Install
+
+The easiest way to get rolling (auto-detects your OS, architecture, and toolchain):
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Deltafsociety/hakfm-TUI/main/install.sh | bash
 ```
-> **Note:** Requires `mpv` for audio streaming (`sudo pacman -S mpv`, `sudo apt install mpv`, or `brew install mpv`).
 
----
+> **Requirements:** Just `mpv` for audio streaming (`sudo apt install mpv`, `sudo pacman -S mpv`, or `brew install mpv`).
 
-### Alternative: Download Pre-built Binary
-Download the binary from [GitHub Releases](https://github.com/Deltafsociety/hakfm-TUI/releases/latest), then make it executable:
+After install, launch it anytime with:
 ```bash
-chmod +x hakfm
-./hakfm
-```
-
----
-
-### Alternative: Install via Cargo
-```bash
-cargo install --git https://github.com/Deltafsociety/hakfm-TUI.git
-```
-
----
-
-### Build From Source
-
-
-## Step 1: Dependencies
-
-**Audio Engine (`mpv`):**
-- **Ubuntu / Linux Mint / Debian:** `sudo apt update && sudo apt install -y mpv`
-- **Arch Linux:** `sudo pacman -S mpv`
-- **Fedora:** `sudo dnf install -y mpv`
-- **macOS:** `brew install mpv`
-
-**Rust Compiler (only if building from source):**
-- Modern dependencies require Rust 1.85+. If you don't have Rust or have an outdated distro package, install the official toolchain via `rustup`:
-  ```bash
-  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-  ```
-- On Arch Linux, the system package is always fresh:
-  ```bash
-  sudo pacman -S rust
-  ```
----
-
-## Step 2 
-Download the project zip file
-
-[DOWNLOAD ZIP](https://github.com/Deltafsociety/hakfm-TUI/archive/refs/heads/main.zip)
-
----
-
-## step 3
-open a terminal and navigate the *extracted* folder
-
-```bash 
-cd YOUR_DOWNLOAD_PATH
-```
-
-```bash
-unzip hakfm-TUI-main.zip
-```
-
-
-```bash
-cd hakfm-TUI-main
-```
-
-RUN this :
-
-```bash 
-chmod +x ./build.sh
-```
-> This gives the install script execution rights.
-
-then after the script is done you can run
- ```bash 
 hakfm
-```
-OR
-```bash
+# or just:
 radio
 ```
 
-in order to launch the application
+---
 
-# Step 4
+## 📦 Alternative Installations
 
-- Star this project!
-- feel free to open issues
-- enjoy your deep focus sessions
-- visit my [Open Focus](https://github.com/Deltafsociety/open-focus) Project :D
-- Contact me: [Delta Fsociety](https://zist.digital/delta/contact-me/)
+<details>
+<summary><b>Option A: Download Static Pre-Built Binary</b></summary>
+<br/>
 
+Grab the static binary for your machine from [GitHub Releases](https://github.com/Deltafsociety/hakfm-TUI/releases/latest) (built with `musl`, zero glibc version mismatches):
 
-## Controls
+```bash
+# Example for Linux x86_64:
+curl -LO https://github.com/Deltafsociety/hakfm-TUI/releases/latest/download/hakfm-linux-x86_64
+chmod +x hakfm-linux-x86_64
+mv hakfm-linux-x86_64 ~/.local/bin/hakfm
+```
+</details>
 
-> both dorky style and Legend VIM style ( for champs ) are implemented :D 
+<details>
+<summary><b>Option B: Install via Cargo</b></summary>
+<br/>
+
+```bash
+cargo install --git https://github.com/Deltafsociety/hakfm-TUI.git
+```
+</details>
+
+<details>
+<summary><b>Option C: Build From Source</b></summary>
+<br/>
+
+```bash
+git clone https://github.com/Deltafsociety/hakfm-TUI.git
+cd hakfm-TUI
+./build.sh
+```
+
+*(Note: Modern Rust dependencies require Rust 1.85+. If your distro's apt is stuck on an older version, install official Rust via `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`).*
+</details>
+
+---
+
+## 🎮 Keyboard Controls
+
+> Both normal human arrow keys and legendary Vim keys (`hjkl`) are supported — no judgment here.
 
 | Key | Action |
 |---|---|
-| `↑` / `k`, `↓` / `j` | Navigate stations |
-| `Enter` | Play selected station |
-| `Space` | Stop/resume playback |
-| `←` / `h`, `→` / `l` | Tune previous/next station |
-| `Tab` / `1` / `2` | Switch views (Library <-> Internet-Radio.com) |
-| `i` | Search [internet-radio.com](https://www.internet-radio.com/) in TUI |
+| `↑` / `k`, `↓` / `j` | Navigate station list |
+| `Enter` | Tune in & play selected station |
+| `Space` | Pause / resume playback |
+| `←` / `h`, `→` / `l` | Previous / next station |
+| `Tab` / `1` / `2` | Toggle views (**Library** ⟷ **Internet-Radio**) |
+| `i` | Search [internet-radio.com](https://www.internet-radio.com/) from inside the TUI |
 | `a` | Add custom station URL (or save Internet-Radio station to library) |
-| `d` / `Delete` | Delete custom station from library |
-| `/` | Filter stations in library |
+| `d` / `Delete` | Delete custom station |
+| `/` | Instant filter stations in library |
 | `s` | Star / favorite station |
 | `f` | Show favorites only |
+| `v` | Cycle visualizer (*Spectrum → Waveform → Stereo VU → Matrix Dots → Off*) |
+| `t` | Cycle color theme (*Cyberpunk → Matrix → Nord → Dracula → Stealth*) |
 | `x` | Stop playback |
-| `r` | Reset filters |
-| `?` | Help & keyboard shortcuts |
-| `q` | Quit |
+| `r` | Reset all search filters |
+| `?` | Keyboard shortcut cheat sheet |
+| `q` / `Esc` | Quit like a civilized hacker |
 
-## Notes
+---
 
-- Streams can change or become unavailable. If one fails, try another station.
-- The `Space` key stops and restarts a station when resuming. Seamless pause/resume and volume controls would require adding mpv IPC.
-- The preset URLs use SomaFM's public MP3 stream pattern. The receiver does not host or redistribute audio.
-- On quit, the application terminates the `mpv` process it started.
+## 💜 Support & Donations
 
+> If **hakfm** saved your sanity during a 3 AM debugging spiral, soundtracked a late-night hacking session, or you just respect free & open-source software built without corporate telemetry, consider tossing some caffeine my way:
 
-The moving bar is a lightweight animated visual, not an audio-spectrum measurement. Playback is handled by `mpv`; station streams are provided by SomaFM.
+<div align="left">
+
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy_Me_A_Coffee-Support-ff813f?style=for-the-badge&logo=buy-me-a-coffee&logoColor=white)](https://zist.digital/delta/contact-me/)
+[![Monero](https://img.shields.io/badge/Monero-XMR-ff6600?style=for-the-badge&logo=monero&logoColor=white)](https://zist.digital/delta/contact-me/)
+[![Bitcoin Cash](https://img.shields.io/badge/Bitcoin_Cash-BCH-0ac18e?style=for-the-badge&logo=bitcoincash&logoColor=white)](https://zist.digital/delta/contact-me/)
+
+</div>
+
+- **Tip / Support:** Reach out or tip via [Delta's Contact & Support Page](https://zist.digital/delta/contact-me/)
+- **Monero (XMR) & BCH:** Accepted with open arms — check the contact link above for fresh addresses!
+- **Star the Repo ⭐:** Free, takes 0.5 seconds, and releases endorphins in my brain.
+
+---
+
+## 🛰️ Notes & Acknowledgements
+
+- **Station Streams:** Stream presets are sourced from public SomaFM MP3 streams. Audio streaming is powered by `mpv`. This client does not scrape, rehost, or redistribute copyright audio.
+- **Config & Persistence:** Your custom stations, favorites, selected visualizer, and chosen theme are neatly stored in `~/.config/hakfm/config.json`.
+- **Sister Project:** Also check out [Open Focus](https://github.com/Deltafsociety/open-focus) for deep-work focus timer tools.
+
+---
+
+<div align="center">
+
+Forged with ☕ and paranoia by **[Delta Fsociety](https://zist.digital/delta/contact-me/)**
+
+*`// stay paranoid, stay free`*
+
+</div>

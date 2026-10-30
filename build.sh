@@ -26,7 +26,6 @@ if [[ -z "$BIN_NAME" ]]; then
     exit 1
 fi
 
-# Verify Rust toolchain
 if ! command -v cargo >/dev/null 2>&1 || ! command -v rustc >/dev/null 2>&1; then
     echo "[-] Rust and Cargo are required to build $BIN_NAME."
     echo "[+] Install the official modern Rust compiler via:"

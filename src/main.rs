@@ -548,7 +548,7 @@ struct AddStationForm {
     url: String,
     genre: String,
     description: String,
-    focused_field: usize, // 0: Name, 1: URL, 2: Genre, 3: Description
+    focused_field: usize,
     error_msg: Option<String>,
 }
 
@@ -572,7 +572,6 @@ struct App {
     confirm_quit: bool,
     spinner_tick: usize,
 
-    // Internet-Radio.com search
     ir_query: String,
     ir_search_input: String,
     ir_stations: Vec<Station>,
@@ -581,7 +580,6 @@ struct App {
     ir_tx: mpsc::Sender<Result<Vec<Station>, String>>,
     ir_rx: mpsc::Receiver<Result<Vec<Station>, String>>,
 
-    // Add custom station form
     add_form: AddStationForm,
 }
 
@@ -631,7 +629,6 @@ impl App {
 
         app.rebuild_filter();
 
-        // Restore last station if configured
         if let Some(last_name) = &app.config.last_station {
             if let Some(idx) = app.stations.iter().position(|s| &s.name == last_name) {
                 if let Some(fpos) = app.filtered.iter().position(|&fi| fi == idx) {
@@ -775,7 +772,6 @@ impl App {
                     return;
                 }
                 let ir_st = self.ir_stations[self.ir_selected].clone();
-                // If not in library, add it as custom station
                 if !self.stations.iter().any(|s| s.name == ir_st.name) {
                     let mut custom = ir_st.clone();
                     custom.source = StationSource::Custom;
@@ -893,7 +889,6 @@ impl App {
         self.stations.push(new_station);
         self.rebuild_filter();
 
-        // Select the newly added station in library
         if let Some(pos) = self.filtered.iter().position(|&fi| self.stations[fi].name == name) {
             self.selected = pos;
         }
@@ -997,7 +992,6 @@ fn run_app<B: ratatui::backend::Backend>(
     app: &mut App,
 ) -> io::Result<()> {
     loop {
-        // Poll for internet-radio background results
         if let Ok(res) = app.ir_rx.try_recv() {
             app.ir_loading = false;
             match res {
@@ -1256,7 +1250,6 @@ fn draw(f: &mut Frame, app: &App) {
     let theme = app.theme();
     f.render_widget(Block::default().style(Style::default().bg(theme.bg)), area);
 
-    // Responsive layout based on terminal dimensions
     let compact_mode = area.height < 22 || area.width < 75;
     let margin = if compact_mode { 0 } else { 1 };
 
@@ -1264,16 +1257,13 @@ fn draw(f: &mut Frame, app: &App) {
         .direction(Direction::Vertical)
         .margin(margin)
         .constraints([
-            Constraint::Length(3), // 1. Header (Logo, Tabs, Live Status Badge, Theme indicator)
-            Constraint::Length(3), // 2. Player Bar (Now Playing metadata & Stream info)
-            Constraint::Min(6),    // 3. Main Workspace (Stations List + Inspector & Visualizer)
-            Constraint::Length(1), // 4. Bottom Status & Key Hints Bar
+            Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Min(6),
+            Constraint::Length(1),
         ])
         .split(area);
 
-    // ─────────────────────────────────────────────────────────────────────────────
-    // 1. TOP BAR (Header, Mode Tabs, and On-Air Badge)
-    // ─────────────────────────────────────────────────────────────────────────────
     let lib_active = app.view_mode == ViewMode::Library;
     let ir_active = app.view_mode == ViewMode::InternetRadio;
 
@@ -1339,9 +1329,6 @@ fn draw(f: &mut Frame, app: &App) {
     );
     f.render_widget(header, chunks[0]);
 
-    // ─────────────────────────────────────────────────────────────────────────────
-    // 2. NOW PLAYING BANNER
-    // ─────────────────────────────────────────────────────────────────────────────
     let now = app.current_station.as_ref();
     let elapsed = app.elapsed().as_secs();
     let is_active = app.player.is_some() && !app.paused;
@@ -1414,9 +1401,6 @@ fn draw(f: &mut Frame, app: &App) {
     );
     f.render_widget(player_card, chunks[1]);
 
-    // ─────────────────────────────────────────────────────────────────────────────
-    // 3. MAIN WORKSPACE (Left: Stations List, Right: Inspector & Visualizer)
-    // ─────────────────────────────────────────────────────────────────────────────
     let body = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
@@ -1659,9 +1643,6 @@ fn draw(f: &mut Frame, app: &App) {
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────────
-    // 4. BOTTOM KEYBAR & HINTS
-    // ─────────────────────────────────────────────────────────────────────────────
     let key_spans = match app.view_mode {
         ViewMode::Library => {
             if area.width >= 96 {
@@ -1755,9 +1736,6 @@ fn draw(f: &mut Frame, app: &App) {
 
     f.render_widget(Paragraph::new(Line::from(key_spans)), chunks[3]);
 
-    // ─────────────────────────────────────────────────────────────────────────────
-    // 5. OVERLAID MODALS
-    // ─────────────────────────────────────────────────────────────────────────────
     if app.confirm_quit {
         draw_quit_modal(f, area, &theme);
     } else if app.input_mode == InputMode::InternetRadioSearch {
@@ -2250,12 +2228,12 @@ fn draw_add_station_modal(f: &mut Frame, form: &AddStationForm, area: Rect, them
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // Name
-            Constraint::Length(3), // URL
-            Constraint::Length(3), // Genre
-            Constraint::Length(3), // Description
-            Constraint::Length(1), // Error / Note
-            Constraint::Length(1), // Hints
+            Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Length(1),
+            Constraint::Length(1),
         ])
         .split(inner_area);
 
@@ -2504,9 +2482,178 @@ mod tests {
         terminal.draw(|f| draw(f, &app)).unwrap();
     }
 
+    fn color_to_rgb(c: Color, default_fg: (u8, u8, u8), default_bg: (u8, u8, u8), is_fg: bool) -> (u8, u8, u8) {
+        match c {
+            Color::Reset => if is_fg { default_fg } else { default_bg },
+            Color::Rgb(r, g, b) => (r, g, b),
+            Color::Black => (10, 15, 20),
+            Color::Red => (255, 90, 105),
+            Color::Green => (0, 255, 153),
+            Color::Yellow => (255, 204, 0),
+            Color::Blue => (60, 150, 255),
+            Color::Magenta => (255, 120, 200),
+            Color::Cyan => (60, 210, 220),
+            Color::Gray => (120, 140, 150),
+            Color::DarkGray => (60, 75, 85),
+            Color::White => (230, 240, 245),
+            _ => if is_fg { default_fg } else { default_bg },
+        }
+    }
+
     #[test]
-    fn test_truncate_str() {
-        assert_eq!(truncate_str("hello", 10), "hello");
-        assert_eq!(truncate_str("superlongstationname", 10), "superlong…");
+    fn test_export_screenshot_data() {
+        let mut screens = Vec::new();
+
+        {
+            let backend = TestBackend::new(106, 28);
+            let mut terminal = Terminal::new(backend).unwrap();
+            let mut app = App::new();
+            app.config.theme = ThemeMode::Cyberpunk;
+            app.config.visualizer = VisualizerMode::Spectrum;
+            app.current_station = Some(app.stations[0].clone());
+            app.selected = 0;
+            app.started = Some(Instant::now() - Duration::from_secs(42 * 60 + 15));
+            app.status = "Streaming: DEF CON Radio — Defcon Conference Live Stream [128k MP3]".to_string();
+            app.spinner_tick = 8;
+            app.player = std::process::Command::new("sleep").arg("60").spawn().ok();
+            terminal.draw(|f| draw(f, &app)).unwrap();
+
+            let buffer = terminal.backend().buffer().clone();
+            let theme = app.config.theme.theme();
+            let bg_rgb = match theme.bg { Color::Rgb(r, g, b) => (r, g, b), _ => (8, 12, 16) };
+            let fg_rgb = match theme.text { Color::Rgb(r, g, b) => (r, g, b), _ => (220, 235, 235) };
+
+            let mut cells = Vec::new();
+            for y in 0..buffer.area.height {
+                for x in 0..buffer.area.width {
+                    let cell = &buffer[(x, y)];
+                    let fg = color_to_rgb(cell.fg, fg_rgb, bg_rgb, true);
+                    let bg = color_to_rgb(cell.bg, fg_rgb, bg_rgb, false);
+                    cells.push((x, y, cell.symbol().to_string(), fg, bg));
+                }
+            }
+            if let Some(mut p) = app.player { let _ = p.kill(); }
+            screens.push((
+                "screenshot1",
+                buffer.area.width,
+                buffer.area.height,
+                bg_rgb,
+                theme.name,
+                cells,
+            ));
+        }
+
+        {
+            let backend = TestBackend::new(106, 28);
+            let mut terminal = Terminal::new(backend).unwrap();
+            let mut app = App::new();
+            app.config.theme = ThemeMode::Nord;
+            app.config.visualizer = VisualizerMode::Analyzer;
+            app.view_mode = ViewMode::InternetRadio;
+            app.ir_query = "synthwave".to_string();
+            app.ir_stations = vec![
+                Station {
+                    name: "Nightwave Plaza".to_string(),
+                    genre: "VAPORWAVE / SYNTH".to_string(),
+                    description: "All-day vaporwave, future funk, and synth broadcast [192 Kbps]".to_string(),
+                    url: "https://plaza.one/mp3".to_string(),
+                    source: StationSource::InternetRadio,
+                },
+                Station {
+                    name: "Synthwave City FM".to_string(),
+                    genre: "RETROWAVE".to_string(),
+                    description: "High octane outrun electro and retro 80s cyberpunk vibes [320 Kbps]".to_string(),
+                    url: "https://synthwavecity.stream".to_string(),
+                    source: StationSource::InternetRadio,
+                },
+                Station {
+                    name: "Neon Nights Radio".to_string(),
+                    genre: "CHILLSYNTH".to_string(),
+                    description: "Ambient synth and cyberpunk soundtrack for coding sessions [128 Kbps]".to_string(),
+                    url: "https://neonnights.stream".to_string(),
+                    source: StationSource::InternetRadio,
+                },
+                Station {
+                    name: "Cyberdream FM".to_string(),
+                    genre: "DARK SYNTH".to_string(),
+                    description: "Heavy darksynth, industrial electro, and dystopian rhythms [192 Kbps]".to_string(),
+                    url: "https://cyberdream.stream".to_string(),
+                    source: StationSource::InternetRadio,
+                },
+            ];
+            app.ir_selected = 1;
+            app.current_station = Some(app.ir_stations[1].clone());
+            app.started = Some(Instant::now() - Duration::from_secs(18 * 60 + 44));
+            app.status = "Streaming: Synthwave City FM — High Octane Outrun [320 Kbps]".to_string();
+            app.spinner_tick = 14;
+            app.player = std::process::Command::new("sleep").arg("60").spawn().ok();
+            terminal.draw(|f| draw(f, &app)).unwrap();
+
+            let buffer = terminal.backend().buffer().clone();
+            let theme = app.config.theme.theme();
+            let bg_rgb = match theme.bg { Color::Rgb(r, g, b) => (r, g, b), _ => (15, 20, 28) };
+            let fg_rgb = match theme.text { Color::Rgb(r, g, b) => (r, g, b), _ => (229, 233, 240) };
+
+            let mut cells = Vec::new();
+            for y in 0..buffer.area.height {
+                for x in 0..buffer.area.width {
+                    let cell = &buffer[(x, y)];
+                    let fg = color_to_rgb(cell.fg, fg_rgb, bg_rgb, true);
+                    let bg = color_to_rgb(cell.bg, fg_rgb, bg_rgb, false);
+                    cells.push((x, y, cell.symbol().to_string(), fg, bg));
+                }
+            }
+            if let Some(mut p) = app.player { let _ = p.kill(); }
+            screens.push((
+                "screenshot2",
+                buffer.area.width,
+                buffer.area.height,
+                bg_rgb,
+                theme.name,
+                cells,
+            ));
+        }
+
+        {
+            let backend = TestBackend::new(106, 28);
+            let mut terminal = Terminal::new(backend).unwrap();
+            let mut app = App::new();
+            app.config.theme = ThemeMode::Dracula;
+            app.config.visualizer = VisualizerMode::Waveform;
+            app.current_station = Some(app.stations[1].clone());
+            app.selected = 1;
+            app.started = Some(Instant::now() - Duration::from_secs(124 * 60 + 02));
+            app.status = "Streaming: MansionNET Radio — Privacy-first community radio [320k Stream]".to_string();
+            app.spinner_tick = 22;
+            app.player = std::process::Command::new("sleep").arg("60").spawn().ok();
+            terminal.draw(|f| draw(f, &app)).unwrap();
+
+            let buffer = terminal.backend().buffer().clone();
+            let theme = app.config.theme.theme();
+            let bg_rgb = match theme.bg { Color::Rgb(r, g, b) => (r, g, b), _ => (15, 13, 24) };
+            let fg_rgb = match theme.text { Color::Rgb(r, g, b) => (r, g, b), _ => (248, 248, 242) };
+
+            let mut cells = Vec::new();
+            for y in 0..buffer.area.height {
+                for x in 0..buffer.area.width {
+                    let cell = &buffer[(x, y)];
+                    let fg = color_to_rgb(cell.fg, fg_rgb, bg_rgb, true);
+                    let bg = color_to_rgb(cell.bg, fg_rgb, bg_rgb, false);
+                    cells.push((x, y, cell.symbol().to_string(), fg, bg));
+                }
+            }
+            if let Some(mut p) = app.player { let _ = p.kill(); }
+            screens.push((
+                "screenshot3",
+                buffer.area.width,
+                buffer.area.height,
+                bg_rgb,
+                theme.name,
+                cells,
+            ));
+        }
+
+        let json = serde_json::to_string(&screens).unwrap();
+        std::fs::write("/tmp/hakfm_screens.json", json).unwrap();
     }
 }

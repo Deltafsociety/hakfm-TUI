@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
-# ==============================================================================
-# HAK.FM TUI - Universal One-line Installer for Linux & macOS
-# Repository: https://github.com/Deltafsociety/hakfm-TUI
-# ==============================================================================
 set -e
 
 REPO="Deltafsociety/hakfm-TUI"
@@ -17,7 +13,6 @@ echo " |_| |_||_| |_||_|\_\ |_|   |_|  |_|"
 echo "  Terminal Radio for Hacker Focus   "
 echo ""
 
-# 1. Detect OS and Architecture
 OS_RAW="$(uname -s)"
 ARCH_RAW="$(uname -m)"
 
@@ -43,7 +38,6 @@ BIN_DIR="$HOME/.local/bin"
 mkdir -p "$BIN_DIR"
 TARGET_BIN="$BIN_DIR/hakfm"
 
-# Parse flags (e.g. --build to force compiling from source)
 FORCE_BUILD=0
 for arg in "$@"; do
     if [ "$arg" = "--build" ] || [ "$arg" = "-b" ]; then
@@ -53,7 +47,6 @@ done
 
 INSTALLED=0
 
-# 2. Try pre-built binary first (Fast, no compiler or toolchain needed)
 if [ "$FORCE_BUILD" -eq 0 ] && [ "$OS" != "unknown" ]; then
     echo "[+] Looking for pre-built binary for $OS ($ARCH)..."
 
@@ -78,7 +71,6 @@ if [ "$FORCE_BUILD" -eq 0 ] && [ "$OS" != "unknown" ]; then
         DOWNLOAD_URL="$LATEST_RELEASE_URL/download/$ASSET"
         if curl -fSL --progress-bar "$DOWNLOAD_URL" -o "$TMP_BIN" 2>/dev/null; then
             chmod +x "$TMP_BIN"
-            # Verify the binary runs on this host (checks libc compatibility)
             if "$TMP_BIN" --version >/dev/null 2>&1; then
                 mv -f "$TMP_BIN" "$TARGET_BIN"
                 chmod +x "$TARGET_BIN"
@@ -94,7 +86,6 @@ if [ "$FORCE_BUILD" -eq 0 ] && [ "$OS" != "unknown" ]; then
     rm -f "$TMP_BIN" 2>/dev/null || true
 fi
 
-# 3. Fallback to building from source if binary wasn't installed
 if [ "$INSTALLED" -eq 0 ]; then
     if [ "$FORCE_BUILD" -eq 1 ]; then
         echo "[+] Building from source requested..."
@@ -103,16 +94,14 @@ if [ "$INSTALLED" -eq 0 ]; then
         echo "[+] Falling back to compiling from source..."
     fi
 
-    # Ensure Rust toolchain is available and at least Rust 1.85 (required for modern dependencies)
     NEED_RUSTUP=0
     if ! command -v cargo >/dev/null 2>&1 || ! command -v rustc >/dev/null 2>&1; then
         NEED_RUSTUP=1
     else
-        # Check rustc version
         RUST_VER="$(rustc --version 2>/dev/null | awk '{print $2}')"
         RUST_MINOR="$(echo "$RUST_VER" | cut -d. -f2)"
         if [ -n "$RUST_MINOR" ] && [ "$RUST_MINOR" -lt 85 ]; then
-            echo "[-] Detected Rust $RUST_VER (apt/system package manager version is too old for Rust 2024 dependencies)."
+            echo "[-] Detected Rust $RUST_VER (system toolchain too old for edition 2024 crates)."
             NEED_RUSTUP=1
         fi
     fi
@@ -150,7 +139,6 @@ if [ "$INSTALLED" -eq 0 ]; then
     exit 1
 fi
 
-# 4. Check audio engine (mpv)
 if ! command -v mpv >/dev/null 2>&1; then
     echo ""
     echo "[!] Notice: 'mpv' is required for streaming audio."
@@ -171,7 +159,6 @@ if ! command -v mpv >/dev/null 2>&1; then
     fi
 fi
 
-# 5. Ensure ~/.local/bin is in PATH across shells
 for RC in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
     if [ -f "$RC" ] && ! grep -Fq '.local/bin' "$RC"; then
         printf '\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$RC"
