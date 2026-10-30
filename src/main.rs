@@ -153,10 +153,7 @@ fn save_config(config: &Config) {
     }
 }
 
-// ---------------------------------------------------------
-// Internet-Radio.com Scraper & Search
-// ---------------------------------------------------------
-
+// Internet-Radio.com function is here, feel free to modify and send a pull request if you have a better idea <3
 fn url_encode(input: &str) -> String {
     let mut encoded = String::new();
     for b in input.bytes() {
@@ -247,11 +244,11 @@ fn search_internet_radio(query: &str) -> Result<Vec<Station>, String> {
         .set("User-Agent", "Mozilla/5.0 (hakfm; Linux x86_64; rv:120.0)")
         .timeout(Duration::from_secs(12))
         .call()
-        .map_err(|e| format!("Network request failed: {e}"))?;
+        .map_err(|e| format!("The internet tubes clogged: {e} (╯°□°)╯︵ ┻━┻"))?;
 
     let html = resp
         .into_string()
-        .map_err(|e| format!("Failed to read web response: {e}"))?;
+        .map_err(|e| format!("Received garbled trash from server: {e} ¯\\_(ツ)_/¯"))?;
 
     let mut stations = Vec::new();
 
@@ -375,9 +372,9 @@ fn search_internet_radio(query: &str) -> Result<Vec<Station>, String> {
     Ok(stations)
 }
 
-// ---------------------------------------------------------
-// View & Input Modes
-// ---------------------------------------------------------
+
+// View & Input Modes functions are here
+
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ViewMode {
@@ -420,6 +417,7 @@ struct App {
     show_help: bool,
     show_favorites: bool,
     should_quit: bool,
+    confirm_quit: bool,
     spinner_tick: usize,
 
     // Internet-Radio.com search
@@ -456,7 +454,7 @@ impl App {
             view_mode: ViewMode::Library,
             input_mode: InputMode::Normal,
             search: String::new(),
-            status: "Ready. Pick a station.".into(),
+            status: "Ready to melt braincells. Pick a damn station (ง'̀-'́)ง".into(),
             current_station: None,
             player: None,
             paused: false,
@@ -465,6 +463,7 @@ impl App {
             show_help: false,
             show_favorites: false,
             should_quit: false,
+            confirm_quit: false,
             spinner_tick: 0,
 
             ir_query: String::new(),
@@ -520,7 +519,7 @@ impl App {
         match self.view_mode {
             ViewMode::Library => {
                 if self.filtered.is_empty() {
-                    self.status = "No stations match this filter.".into();
+                    self.status = "No stations match your picky filter, Einstein! ¯\\_(ツ)_/¯".into();
                     return;
                 }
                 let idx = self.filtered[self.selected];
@@ -529,7 +528,7 @@ impl App {
             }
             ViewMode::InternetRadio => {
                 if self.ir_stations.is_empty() {
-                    self.status = "No internet-radio stations available.".into();
+                    self.status = "No web-radio stations loaded. Search first, genius! ಠ_ಠ".into();
                     return;
                 }
                 let station = self.ir_stations[self.ir_selected].clone();
@@ -559,10 +558,10 @@ impl App {
                 self.started = Some(Instant::now());
                 self.elapsed_base = Duration::ZERO;
                 self.config.last_station = Some(name.clone());
-                self.status = format!("Playing {name}");
+                self.status = format!("Blasting '{name}'! Kiss your eardrums goodbye (ง'̀-'́)ง");
                 save_config(&self.config);
             }
-            Err(e) => self.status = format!("Could not start mpv: {e}"),
+            Err(e) => self.status = format!("mpv choked and died: {e} (╯°□°)╯︵ ┻━┻"),
         }
     }
 
@@ -583,10 +582,10 @@ impl App {
             } else {
                 self.stop_player();
                 self.paused = true;
-                self.status = "Stopped. Press Space to resume.".into();
+                self.status = "Muted. Enjoy your pathetic silence, buzzkill. ¯\\_(ツ)_/¯".into();
             }
         } else {
-            self.status = "Choose a station first.".into();
+            self.status = "Pick a station first, don't just mash buttons like a monkey! ಠ_ಠ".into();
         }
     }
 
@@ -637,10 +636,10 @@ impl App {
 
         if let Some(pos) = self.config.favorites.iter().position(|n| n == &name_to_fav) {
             self.config.favorites.remove(pos);
-            self.status = format!("Removed {name_to_fav} from favorites.");
+            self.status = format!("Dumped '{name_to_fav}'. Friendship ended with this station. ಠ_ಠ");
         } else {
             self.config.favorites.push(name_to_fav.clone());
-            self.status = format!("Added {name_to_fav} to favorites.");
+            self.status = format!("Simping for '{name_to_fav}'? Starred! ★ ( ͡° ͜ʖ ͡°)");
         }
         save_config(&self.config);
         self.rebuild_filter();
@@ -652,7 +651,7 @@ impl App {
         }
         let ir_st = self.ir_stations[self.ir_selected].clone();
         if self.stations.iter().any(|s| s.name == ir_st.name || s.url == ir_st.url) {
-            self.status = format!("'{}' is already in your library.", ir_st.name);
+            self.status = format!("Greed is a sin: '{}' is already sitting in your vault! ಠ_ಠ", ir_st.name);
             return;
         }
 
@@ -662,7 +661,7 @@ impl App {
         save_config(&self.config);
         self.stations.push(custom);
         self.rebuild_filter();
-        self.status = format!("Added '{}' to your library!", ir_st.name);
+        self.status = format!("Yoink! Kidnapped '{}' into your Vault! (⌐■_■)", ir_st.name);
     }
 
     fn delete_selected_custom_station(&mut self) {
@@ -672,7 +671,7 @@ impl App {
         let idx = self.filtered[self.selected];
         let station = &self.stations[idx];
         if station.source != StationSource::Custom {
-            self.status = "Preset stations cannot be deleted.".into();
+            self.status = "Hands off, script kiddie! Presets are hardcoded and immortal. 凸(¬‿¬)凸".into();
             return;
         }
 
@@ -684,13 +683,13 @@ impl App {
 
         self.stations.remove(idx);
         self.rebuild_filter();
-        self.status = format!("Deleted custom station '{name}'.");
+        self.status = format!("Nuked custom station '{name}' into digital ash! [x_x] (╯°□°)╯");
     }
 
     fn start_ir_search(&mut self) {
         let query = self.ir_search_input.trim().to_string();
         if query.is_empty() {
-            self.status = "Please enter a search term.".into();
+            self.status = "Type a search query first, psychic reading isn't implemented! ಠ_ಠ".into();
             return;
         }
 
@@ -699,7 +698,7 @@ impl App {
         self.ir_stations.clear();
         self.ir_selected = 0;
         self.view_mode = ViewMode::InternetRadio;
-        self.status = format!("Searching internet-radio.com for '{query}'...");
+        self.status = format!("Scouring the internet sewers for '{query}'... (ง'̀-'́)ง");
 
         let tx = self.ir_tx.clone();
         thread::spawn(move || {
@@ -715,18 +714,18 @@ impl App {
         let desc = self.add_form.description.trim().to_string();
 
         if name.is_empty() {
-            self.add_form.error_msg = Some("Station name is required.".into());
+            self.add_form.error_msg = Some("Hey Einstein, a station needs a damn NAME! (ノಠ益ಠ)ノ彡┻━┻".into());
             self.add_form.focused_field = 0;
             return;
         }
         if url.is_empty() {
-            self.add_form.error_msg = Some("Stream URL is required.".into());
+            self.add_form.error_msg = Some("You forgot the stream URL, genius. What are we playing, silence? ಠ_ಠ".into());
             self.add_form.focused_field = 1;
             return;
         }
 
         let final_genre = if genre.is_empty() { "CUSTOM".into() } else { genre.to_uppercase() };
-        let final_desc = if desc.is_empty() { "User-added custom station".into() } else { desc };
+        let final_desc = if desc.is_empty() { "Sketchy user-injected audio pipeline".into() } else { desc };
 
         let new_station = Station {
             name: name.clone(),
@@ -747,7 +746,7 @@ impl App {
             self.selected = pos;
         }
 
-        self.status = format!("Station '{name}' added to library!");
+        self.status = format!("Injected '{name}' into your Vault! Blast it! (ง'̀-'́)ง");
         self.input_mode = InputMode::Normal;
         self.add_form = AddStationForm::default();
         self.view_mode = ViewMode::Library;
@@ -773,7 +772,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(|s| s.success())
         .unwrap_or(false)
     {
-        eprintln!("HAK.FM needs mpv. Install it on Arch with: sudo pacman -S mpv");
+        eprintln!("HAK.FM needs mpv, you doofus! (╯°□°)╯︵ ┻━┻\nInstall it on Arch: sudo pacman -S mpv\nOr Debian/Ubuntu: sudo apt install mpv");
         std::process::exit(1);
     }
 
@@ -817,18 +816,18 @@ fn run_app<B: ratatui::backend::Backend>(
                     app.ir_selected = 0;
                     if count == 0 {
                         app.status = format!(
-                            "No stations found on internet-radio.com for '{}'.",
+                            "0 results for '{}'. Did your cat walk on the keyboard? ¯\\_(ツ)_/¯",
                             app.ir_query
                         );
                     } else {
                         app.status = format!(
-                            "Found {} stations on internet-radio.com for '{}'.",
+                            "Plundered {} stations for '{}'. Pick your poison! (⌐■_■)",
                             count, app.ir_query
                         );
                     }
                 }
                 Err(err) => {
-                    app.status = format!("Search error: {err}");
+                    app.status = format!("Search exploded: {err} (╯°□°)╯︵ ┻━┻");
                 }
             }
         }
@@ -841,6 +840,25 @@ fn run_app<B: ratatui::backend::Backend>(
         if event::poll(Duration::from_millis(150))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind != KeyEventKind::Press {
+                    continue;
+                }
+
+                if app.confirm_quit {
+                    match key.code {
+                        KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
+                            app.should_quit = true;
+                        }
+                        KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc | KeyCode::Char('q') => {
+                            app.confirm_quit = false;
+                            app.status = "Ragequit aborted! Back to the noise, badass (⌐■_■)".into();
+                        }
+                        _ => {}
+                    }
+                    continue;
+                }
+
+                if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+                    app.confirm_quit = true;
                     continue;
                 }
 
@@ -935,7 +953,7 @@ fn run_app<B: ratatui::backend::Backend>(
                     },
 
                     InputMode::Normal => match key.code {
-                        KeyCode::Char('q') => app.should_quit = true,
+                        KeyCode::Char('q') => app.confirm_quit = true,
                         KeyCode::Char('?') => app.show_help = !app.show_help,
                         KeyCode::Esc => {
                             app.show_help = false;
@@ -989,7 +1007,7 @@ fn run_app<B: ratatui::backend::Backend>(
                         KeyCode::Char('x') => {
                             app.stop_player();
                             app.current_station = None;
-                            app.status = "Playback stopped.".into();
+                            app.status = "Mercilessly slaughtered playback. [x_x] (¬_¬)".into();
                         }
                         KeyCode::Enter => app.play_selected(),
                         KeyCode::Down | KeyCode::Char('j') => match app.view_mode {
@@ -1019,7 +1037,7 @@ fn run_app<B: ratatui::backend::Backend>(
                             app.search.clear();
                             app.show_favorites = false;
                             app.rebuild_filter();
-                            app.status = "Filters reset.".into();
+                            app.status = "Wiped the slate clean. Back to square one. ¯\\_(ツ)_/¯".into();
                         }
                         _ => {}
                     },
@@ -1033,7 +1051,7 @@ fn run_app<B: ratatui::backend::Backend>(
             if let Ok(Some(_)) = child.try_wait() {
                 app.player = None;
                 app.started = None;
-                app.status = "Stream ended or mpv disconnected.".into();
+                app.status = "Stream flatlined or mpv committed seppuku. [x_x] (;´༎ຶД༎ຶ`)".into();
             }
         }
     }
@@ -1063,15 +1081,15 @@ fn draw(f: &mut Frame, app: &App) {
     let header_line1 = Line::from(vec![
         Span::styled(" HAK", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
         Span::styled(".FM", Style::default().fg(TEXT).add_modifier(Modifier::BOLD)),
-        Span::styled("  /  RADIO ", Style::default().fg(MUTED)),
-        Span::styled("●", Style::default().fg(if app.player.is_some() { GREEN } else { MUTED })),
+        Span::styled("  // NOISE PROTOCOL ", Style::default().fg(MUTED)),
+        Span::styled("●", Style::default().fg(if app.player.is_some() { GREEN } else { RED })),
         Span::styled(
-            if app.player.is_some() { " ON AIR  " } else { " IDLE  " },
-            Style::default().fg(if app.player.is_some() { GREEN } else { MUTED }),
+            if app.player.is_some() { " ON AIR (ง'̀-'́)ง  " } else { " DEAD AIR [x_x]  " },
+            Style::default().fg(if app.player.is_some() { GREEN } else { MUTED }).add_modifier(Modifier::BOLD),
         ),
         Span::raw("   "),
         Span::styled(
-            " [1: LIBRARY] ",
+            " [1: THE VAULT] ",
             if lib_active {
                 Style::default().fg(GREEN).bg(Color::Rgb(20, 45, 38)).add_modifier(Modifier::BOLD)
             } else {
@@ -1080,7 +1098,7 @@ fn draw(f: &mut Frame, app: &App) {
         ),
         Span::raw(" "),
         Span::styled(
-            " [2: INTERNET-RADIO] ",
+            " [2: WEB PIRACY] ",
             if ir_active {
                 Style::default().fg(CYAN).bg(Color::Rgb(15, 35, 45)).add_modifier(Modifier::BOLD)
             } else {
@@ -1091,7 +1109,7 @@ fn draw(f: &mut Frame, app: &App) {
 
     let header_line2 = Line::from(vec![
         Span::styled(
-            " terminal radio receiver for late sessions & deep work",
+            " terminal noise injector for code gremlins & caffeine addicts (⌐■_■)",
             Style::default().fg(MUTED),
         ),
     ]);
@@ -1103,26 +1121,26 @@ fn draw(f: &mut Frame, app: &App) {
     );
     f.render_widget(header, chunks[0]);
 
-    // 2. Now Playing Banner & Audio Waveform
+    // 2. Now Playing Banner & Audio Waveform (its just a lil animation so it doesnt take so much process power)
     let now = app.current_station.as_ref();
     let elapsed = app.elapsed().as_secs();
     let status_text = if let Some(station) = now {
         let tag = match station.source {
-            StationSource::Preset => "PRESET",
-            StationSource::Custom => "CUSTOM",
-            StationSource::InternetRadio => "WEB-RADIO",
+            StationSource::Preset => "PRESET-LOOT",
+            StationSource::Custom => "ILLEGAL-FEED",
+            StationSource::InternetRadio => "WEB-PIRACY",
         };
         format!(
-            "  [{tag}] {}   ·   {}   ·   {:02}:{:02}",
+            "  [{tag}] {}   //   {}   //   {:02}:{:02}   //   BLASTING YOUR EARDRUMS (ง'̀-'́)ง",
             station.name,
             station.genre,
             elapsed / 60,
             elapsed % 60
         )
     } else if app.paused {
-        "  Paused · press Space to resume".to_string()
+        "  Paused like a coward... Press [SPACE] to wake up, lazybones! ¯\\_(ツ)_/¯".to_string()
     } else {
-        "  Nothing playing · choose a station and press Enter".to_string()
+        "  Dead silence. Pick a damn station and slam [ENTER] already! (╯°□°)╯".to_string()
     };
 
     let phase = app
@@ -1159,9 +1177,9 @@ fn draw(f: &mut Frame, app: &App) {
     match app.view_mode {
         ViewMode::Library => {
             let title = if app.show_favorites {
-                " STATIONS // FAVORITES "
+                " STATIONS // YOUR ADDICTIONS [★] "
             } else {
-                " STATIONS // LIBRARY "
+                " STATIONS // THE UNDERGROUND VAULT "
             };
 
             let station_items: Vec<ListItem> = app
@@ -1186,8 +1204,8 @@ fn draw(f: &mut Frame, app: &App) {
 
                     let source_tag = match station.source {
                         StationSource::Preset => "",
-                        StationSource::Custom => "[USER] ",
-                        StationSource::InternetRadio => "[WEB] ",
+                        StationSource::Custom => "[CUSTOM] ",
+                        StationSource::InternetRadio => "[PIRATED] ",
                     };
 
                     let name_display = format!("{:<22}", station.name);
@@ -1217,7 +1235,7 @@ fn draw(f: &mut Frame, app: &App) {
                 .collect();
 
             let list_block = Block::default()
-                .title(format!("{title}[{}]", app.filtered.len()))
+                .title(format!("{title}[{}] 凸(¬‿¬)凸 ", app.filtered.len()))
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(CYAN))
                 .style(Style::default().bg(PANEL));
@@ -1251,13 +1269,13 @@ fn draw(f: &mut Frame, app: &App) {
 
             let details = if let Some(station) = selected_station {
                 let source_label = match station.source {
-                    StationSource::Preset => "PRESET (BUILT-IN)",
-                    StationSource::Custom => "CUSTOM (USER-ADDED · 'd' to delete)",
-                    StationSource::InternetRadio => "INTERNET-RADIO.COM",
+                    StationSource::Preset => "IMMORTAL PRESET (can't touch this 凸(¬‿¬)凸)",
+                    StationSource::Custom => "USER JUNK · Hit 'd' to incinerate [x_x]",
+                    StationSource::InternetRadio => "LOOTED FROM INTERNET-RADIO.COM",
                 };
                 vec![
                     Line::from(Span::styled(
-                        "SELECTED STATION",
+                        "TARGET FREQUENCY DOSSIER",
                         Style::default().fg(MUTED).add_modifier(Modifier::BOLD),
                     )),
                     Line::from(Span::styled(
@@ -1267,16 +1285,16 @@ fn draw(f: &mut Frame, app: &App) {
                     Line::from(Span::styled(&station.description, Style::default().fg(TEXT))),
                     Line::from(""),
                     Line::from(Span::styled(
-                        format!("GENRE   {}", station.genre),
+                        format!("VIBE    {}", station.genre),
                         Style::default().fg(CYAN),
                     )),
                     Line::from(Span::styled(
-                        format!("SOURCE  {source_label}"),
+                        format!("ORIGIN  {source_label}"),
                         Style::default().fg(MUTED),
                     )),
                 ]
             } else {
-                vec![Line::from("No stations match this filter.")]
+                vec![Line::from("No stations match your picky filter. ¯\\_(ツ)_/¯")]
             };
 
             f.render_widget(
@@ -1291,11 +1309,11 @@ fn draw(f: &mut Frame, app: &App) {
             );
 
             let search_label = if app.input_mode == InputMode::Filter {
-                format!(" FILTER > {}_", app.search)
+                format!(" SNIFFING > {}_ (ง'̀-'́)ง", app.search)
             } else if !app.search.is_empty() {
-                format!(" ACTIVE FILTER // {}", app.search)
+                format!(" ACTIVE SNIFF // {}", app.search)
             } else {
-                " SEARCH / ACTIVITY".into()
+                " PIRATE COMMAND CENTER (⌐■_■)".into()
             };
 
             let notes = vec![
@@ -1305,24 +1323,30 @@ fn draw(f: &mut Frame, app: &App) {
                 )),
                 Line::from(""),
                 Line::from(Span::styled(
-                    "Press 'a' to add your own custom station URL.",
+                    "• Hit 'a' to force-feed your own custom audio feed.",
                     Style::default().fg(TEXT),
                 )),
                 Line::from(Span::styled(
-                    "Press 'i' to search https://www.internet-radio.com/.",
+                    "• Hit 'i' to loot internet-radio.com for weird frequencies.",
                     Style::default().fg(CYAN),
                 )),
                 Line::from(Span::styled(
-                    "Press 'd' to delete a custom station.",
+                    "• Hit 'd' to nuke custom stations into oblivion [x_x].",
                     Style::default().fg(MUTED),
                 )),
+                Line::from(Span::styled(
+                    "• Hit '?' if your brain cells failed you and you forgot keys.",
+                    Style::default().fg(YELLOW),
+                )),
                 Line::from(""),
-                Line::from(Span::styled("STATUS", Style::default().fg(MUTED))),
+                Line::from(Span::styled("LAST SCREAM:", Style::default().fg(MUTED))),
                 Line::from(Span::styled(
                     &app.status,
-                    Style::default().fg(if app.status.contains("Could not")
-                        || app.status.contains("ended")
+                    Style::default().fg(if app.status.contains("choked")
+                        || app.status.contains("slaughtered")
+                        || app.status.contains("flatlined")
                         || app.status.contains("failed")
+                        || app.status.contains("died")
                     {
                         RED
                     } else {
@@ -1346,12 +1370,12 @@ fn draw(f: &mut Frame, app: &App) {
         ViewMode::InternetRadio => {
             let spinner_frame = SPINNER[app.spinner_tick % SPINNER.len()];
             let title = if app.ir_loading {
-                format!(" INTERNET-RADIO.COM // {} SEARCHING... ", spinner_frame)
+                format!(" INTERNET-RADIO.COM // {} SCRAPING THE SEWERS... ", spinner_frame)
             } else if app.ir_query.is_empty() {
-                " INTERNET-RADIO.COM // (Press 'i' to search) ".into()
+                " INTERNET-RADIO.COM // (Press 'i' or stay ignorant >:-) ".into()
             } else {
                 format!(
-                    " INTERNET-RADIO.COM // '{}' [{}] ",
+                    " INTERNET-RADIO.COM // LOOT FOR '{}' [{}] (⌐■_■) ",
                     app.ir_query,
                     app.ir_stations.len()
                 )
@@ -1359,18 +1383,18 @@ fn draw(f: &mut Frame, app: &App) {
 
             let station_items: Vec<ListItem> = if app.ir_loading {
                 vec![ListItem::new(Line::from(Span::styled(
-                    format!("  {} Searching internet-radio.com for '{}'...", spinner_frame, app.ir_query),
+                    format!("  {} Scraping internet-radio.com for '{}'...", spinner_frame, app.ir_query),
                     Style::default().fg(CYAN).add_modifier(Modifier::BOLD),
                 )))]
             } else if app.ir_stations.is_empty() {
                 vec![
                     ListItem::new(Line::from("")),
                     ListItem::new(Line::from(Span::styled(
-                        "  No stations loaded.",
+                        "  No stations loaded. The web gave you the cold shoulder. ¯\\_(ツ)_/¯",
                         Style::default().fg(MUTED),
                     ))),
                     ListItem::new(Line::from(Span::styled(
-                        "  Press 'i' to search internet-radio.com (e.g. ambient, lofi, synthwave, rock)",
+                        "  Press 'i' and search something that actually exists, genius!",
                         Style::default().fg(CYAN),
                     ))),
                 ]
@@ -1453,14 +1477,14 @@ fn draw(f: &mut Frame, app: &App) {
             let details = if let Some(station) = selected_station {
                 let in_lib = app.stations.iter().any(|s| s.name == station.name);
                 let lib_hint = if in_lib {
-                    "ALREADY SAVED IN YOUR LIBRARY"
+                    "ALREADY HOARDED IN YOUR VAULT (✓)"
                 } else {
-                    "Press 'a' or 's' to save to your Library"
+                    "Press 'a' or 's' to kidnap into your Vault!"
                 };
 
                 vec![
                     Line::from(Span::styled(
-                        "INTERNET-RADIO.COM STATION",
+                        "INSPECTING SKETCHY WEB FREQUENCY",
                         Style::default().fg(MUTED).add_modifier(Modifier::BOLD),
                     )),
                     Line::from(Span::styled(
@@ -1470,18 +1494,18 @@ fn draw(f: &mut Frame, app: &App) {
                     Line::from(Span::styled(&station.description, Style::default().fg(TEXT))),
                     Line::from(""),
                     Line::from(Span::styled(
-                        format!("GENRES   {}", station.genre),
+                        format!("VIBES    {}", station.genre),
                         Style::default().fg(CYAN),
                     )),
                     Line::from(Span::styled(
-                        format!("SAVE     {lib_hint}"),
+                        format!("STATUS   {lib_hint}"),
                         Style::default().fg(if in_lib { GREEN } else { YELLOW }),
                     )),
                 ]
             } else {
                 vec![
-                    Line::from("No station selected."),
-                    Line::from("Press 'i' to search internet-radio.com"),
+                    Line::from("No station selected. Quit daydreaming. ಠ_ಠ"),
+                    Line::from("Press 'i' to loot internet-radio.com"),
                 ]
             };
 
@@ -1498,33 +1522,35 @@ fn draw(f: &mut Frame, app: &App) {
 
             let notes = vec![
                 Line::from(Span::styled(
-                    " INTERNET-RADIO BROWSER",
+                    " DEEP WEB RECONNAISSANCE (⌐■_■)",
                     Style::default().fg(CYAN).add_modifier(Modifier::BOLD),
                 )),
                 Line::from(""),
                 Line::from(Span::styled(
-                    "Press 'Enter' to tune in directly via mpv.",
+                    "• Slam [Enter] to blast this unverified noise stream.",
                     Style::default().fg(TEXT),
                 )),
                 Line::from(Span::styled(
-                    "Press 'a' to save this station to your local library.",
+                    "• Hit 'a' to kidnap this station into your Vault.",
                     Style::default().fg(GREEN),
                 )),
                 Line::from(Span::styled(
-                    "Press 'i' to run a new search on internet-radio.com.",
+                    "• Hit 'i' to raid internet-radio.com for more booty.",
                     Style::default().fg(CYAN),
                 )),
                 Line::from(Span::styled(
-                    "Press 'Tab' to switch back to your Library.",
+                    "• Hit 'Tab' to retreat to your safe library cave.",
                     Style::default().fg(MUTED),
                 )),
                 Line::from(""),
-                Line::from(Span::styled("STATUS", Style::default().fg(MUTED))),
+                Line::from(Span::styled("LAST SCREAM:", Style::default().fg(MUTED))),
                 Line::from(Span::styled(
                     &app.status,
-                    Style::default().fg(if app.status.contains("Could not")
-                        || app.status.contains("ended")
+                    Style::default().fg(if app.status.contains("choked")
+                        || app.status.contains("slaughtered")
+                        || app.status.contains("flatlined")
                         || app.status.contains("failed")
+                        || app.status.contains("died")
                     {
                         RED
                     } else {
@@ -1550,45 +1576,47 @@ fn draw(f: &mut Frame, app: &App) {
     let keys_spans = match app.view_mode {
         ViewMode::Library => vec![
             Span::styled(" ↑/↓ ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
-            Span::styled("navigate  ", Style::default().fg(MUTED)),
+            Span::styled("stalk  ", Style::default().fg(MUTED)),
             Span::styled("ENTER ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
-            Span::styled("tune  ", Style::default().fg(MUTED)),
+            Span::styled("blast  ", Style::default().fg(MUTED)),
             Span::styled("SPACE ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
-            Span::styled("pause  ", Style::default().fg(MUTED)),
+            Span::styled("chill  ", Style::default().fg(MUTED)),
             Span::styled("i ", Style::default().fg(CYAN).add_modifier(Modifier::BOLD)),
-            Span::styled("internet-radio  ", Style::default().fg(MUTED)),
+            Span::styled("pillage-web  ", Style::default().fg(MUTED)),
             Span::styled("a ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
-            Span::styled("add station  ", Style::default().fg(MUTED)),
+            Span::styled("inject  ", Style::default().fg(MUTED)),
             Span::styled("/ ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
-            Span::styled("filter  ", Style::default().fg(MUTED)),
-            Span::styled("s ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
-            Span::styled("star  ", Style::default().fg(MUTED)),
+            Span::styled("sniff  ", Style::default().fg(MUTED)),
+            Span::styled("s ", Style::default().fg(YELLOW).add_modifier(Modifier::BOLD)),
+            Span::styled("simp  ", Style::default().fg(MUTED)),
+            Span::styled("d ", Style::default().fg(RED).add_modifier(Modifier::BOLD)),
+            Span::styled("nuke  ", Style::default().fg(MUTED)),
             Span::styled("Tab ", Style::default().fg(CYAN).add_modifier(Modifier::BOLD)),
-            Span::styled("views  ", Style::default().fg(MUTED)),
+            Span::styled("switch  ", Style::default().fg(MUTED)),
             Span::styled("? ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
-            Span::styled("help  ", Style::default().fg(MUTED)),
-            Span::styled("q ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
-            Span::styled("quit", Style::default().fg(MUTED)),
+            Span::styled("clues  ", Style::default().fg(MUTED)),
+            Span::styled("q ", Style::default().fg(RED).add_modifier(Modifier::BOLD)),
+            Span::styled("ragequit", Style::default().fg(MUTED)),
         ],
         ViewMode::InternetRadio => vec![
             Span::styled(" ↑/↓ ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
-            Span::styled("navigate  ", Style::default().fg(MUTED)),
+            Span::styled("stalk  ", Style::default().fg(MUTED)),
             Span::styled("ENTER ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
-            Span::styled("tune  ", Style::default().fg(MUTED)),
+            Span::styled("blast  ", Style::default().fg(MUTED)),
             Span::styled("SPACE ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
-            Span::styled("pause  ", Style::default().fg(MUTED)),
+            Span::styled("chill  ", Style::default().fg(MUTED)),
             Span::styled("a ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
-            Span::styled("add to library  ", Style::default().fg(MUTED)),
+            Span::styled("kidnap  ", Style::default().fg(MUTED)),
             Span::styled("i ", Style::default().fg(CYAN).add_modifier(Modifier::BOLD)),
-            Span::styled("new search  ", Style::default().fg(MUTED)),
-            Span::styled("s ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
-            Span::styled("star  ", Style::default().fg(MUTED)),
+            Span::styled("hunt  ", Style::default().fg(MUTED)),
+            Span::styled("s ", Style::default().fg(YELLOW).add_modifier(Modifier::BOLD)),
+            Span::styled("simp  ", Style::default().fg(MUTED)),
             Span::styled("Tab ", Style::default().fg(CYAN).add_modifier(Modifier::BOLD)),
-            Span::styled("library  ", Style::default().fg(MUTED)),
+            Span::styled("vault  ", Style::default().fg(MUTED)),
             Span::styled("? ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
-            Span::styled("help  ", Style::default().fg(MUTED)),
-            Span::styled("q ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
-            Span::styled("quit", Style::default().fg(MUTED)),
+            Span::styled("clues  ", Style::default().fg(MUTED)),
+            Span::styled("q ", Style::default().fg(RED).add_modifier(Modifier::BOLD)),
+            Span::styled("ragequit", Style::default().fg(MUTED)),
         ],
     };
 
@@ -1599,11 +1627,13 @@ fn draw(f: &mut Frame, app: &App) {
     );
     f.render_widget(keys, chunks[3]);
 
-    // 5. Footer with Clickable OSC 8 Hyperlink for Delta Fsociety
+    // 5. Footer with Author Credit
     draw_footer(f, chunks[4]);
 
     // 6. Overlaid Modals
-    if app.input_mode == InputMode::InternetRadioSearch {
+    if app.confirm_quit {
+        draw_quit_modal(f, area);
+    } else if app.input_mode == InputMode::InternetRadioSearch {
         draw_ir_search_modal(f, &app.ir_search_input, area);
     } else if app.input_mode == InputMode::AddStation {
         draw_add_station_modal(f, &app.add_form, area);
@@ -1612,9 +1642,69 @@ fn draw(f: &mut Frame, app: &App) {
     }
 }
 
-// ---------------------------------------------------------
-// Modal Dialogs & Footer Hyperlink
-// ---------------------------------------------------------
+
+// Modal Dialogs & Footer
+
+fn draw_quit_modal(f: &mut Frame, area: Rect) {
+    let popup = centered_rect(65, 45, area);
+    f.render_widget(Clear, popup);
+
+    let block = Block::default()
+        .title(" [!] RAGEQUIT DETECTED?! (╯°□°)╯︵ ┻━┻ ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(RED).add_modifier(Modifier::BOLD))
+        .style(Style::default().bg(PANEL));
+    f.render_widget(block, popup);
+
+    let inner = Layout::default()
+        .direction(Direction::Vertical)
+        .margin(1)
+        .constraints([
+            Constraint::Length(2), // Headline
+            Constraint::Length(2), // Subtext
+            Constraint::Length(1), // Emoji banner
+            Constraint::Length(1), // Blank
+            Constraint::Length(2), // Action buttons
+        ])
+        .split(popup);
+
+    let headline = Paragraph::new(vec![
+        Line::from(Span::styled(
+            " Whoa, hold up! Are you seriously bailing out right now?! (ง'̀-'́)ง",
+            Style::default().fg(YELLOW).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(Span::styled(
+            " Your eardrums will starve and your code will get even buggier.",
+            Style::default().fg(TEXT),
+        )),
+    ]);
+    f.render_widget(headline, inner[0]);
+
+    let body = Paragraph::new(vec![
+        Line::from(Span::styled(
+            " Are you really sure you want to run away like a coward? ¯\\_(ツ)_/¯",
+            Style::default().fg(MUTED),
+        )),
+    ]);
+    f.render_widget(body, inner[1]);
+
+    let art = Paragraph::new(Line::from(vec![
+        Span::styled("   (•_•)  ", Style::default().fg(MUTED)),
+        Span::styled("( •_•)>⌐■-■  ", Style::default().fg(CYAN)),
+        Span::styled("(⌐■_■) DEAL WITH THE NOISE", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
+    ]))
+    .alignment(Alignment::Center);
+    f.render_widget(art, inner[2]);
+
+    let actions = Paragraph::new(Line::from(vec![
+        Span::styled(" [Y/Enter] ", Style::default().fg(RED).add_modifier(Modifier::BOLD)),
+        Span::styled("Yeah, I suck, let me ragequit (ಥ﹏ಥ)   ", Style::default().fg(RED)),
+        Span::styled(" [N/Esc/q] ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
+        Span::styled("Hell no, keep rocking! (ง'̀-'́)ง", Style::default().fg(GREEN)),
+    ]))
+    .alignment(Alignment::Center);
+    f.render_widget(actions, inner[4]);
+}
 
 fn draw_footer(f: &mut Frame, area: Rect) {
     if area.height == 0 || area.width == 0 {
@@ -1627,54 +1717,56 @@ fn draw_footer(f: &mut Frame, area: Rect) {
         .split(area);
 
     // Line 1: Program info
-    let line1 = Paragraph::new(Span::styled(
-        "HAK.FM  ·  SomaFM & Internet-Radio Receiver",
-        Style::default().fg(Color::Rgb(50, 90, 80)),
-    ))
+    let line1 = Paragraph::new(Line::from(vec![
+        Span::styled("HAK.FM", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
+        Span::styled("  ·  Cyberpunk Noise Transmitter & Audio Syndicate ", Style::default().fg(Color::Rgb(50, 90, 80))),
+        Span::styled("凸(¬‿¬)凸", Style::default().fg(YELLOW)),
+    ]))
     .alignment(Alignment::Center);
     f.render_widget(line1, sub[0]);
 
-    // Line 2: "Created by " + Clickable OSC 8 Hyperlink "Delta Fsociety"
+    // Line 2: Author name + contact (rendered properly without cell diff bugs)
     if sub.len() > 1 {
-        let prefix = "Created by ";
-        let total_len = prefix.len() + AUTHOR_NAME.len();
-
-        let x_start = sub[1].x + sub[1].width.saturating_sub(total_len as u16) / 2;
-        let y = sub[1].y;
-
-        let buf = f.buffer_mut();
-
-        // Render prefix
-        for (i, ch) in prefix.chars().enumerate() {
-            let x = x_start + i as u16;
-            if x < sub[1].right() {
-                let cell = &mut buf[(x, y)];
-                cell.set_char(ch);
-                cell.set_fg(Color::Rgb(75, 115, 105));
-            }
-        }
-
-        // Render OSC 8 hyperlinked Delta Fsociety
-        let link_start_x = x_start + prefix.len() as u16;
-        if link_start_x < sub[1].right() {
-            let sym = format!("\x1B]8;;{}\x07{}\x1B]8;;\x07", AUTHOR_URL, AUTHOR_NAME);
-            let cell = &mut buf[(link_start_x, y)];
-            cell.set_symbol(&sym);
-            cell.set_style(
-                Style::default()
-                    .fg(CYAN)
-                    .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
-            );
-        }
+        let line2 = if area.width >= 90 {
+            Paragraph::new(Line::from(vec![
+                Span::styled("Forged with caffeine & spite by ", Style::default().fg(Color::Rgb(75, 115, 105))),
+                Span::styled(
+                    AUTHOR_NAME,
+                    Style::default()
+                        .fg(CYAN)
+                        .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+                ),
+                Span::styled(" · ", Style::default().fg(MUTED)),
+                Span::styled(
+                    AUTHOR_URL,
+                    Style::default()
+                        .fg(Color::Rgb(80, 160, 150))
+                        .add_modifier(Modifier::UNDERLINED),
+                ),
+                Span::styled(" (⌐■_■)", Style::default().fg(GREEN)),
+            ]))
+        } else {
+            Paragraph::new(Line::from(vec![
+                Span::styled("Forged by ", Style::default().fg(Color::Rgb(75, 115, 105))),
+                Span::styled(
+                    AUTHOR_NAME,
+                    Style::default()
+                        .fg(CYAN)
+                        .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+                ),
+                Span::styled(" · zist.digital (⌐■_■)", Style::default().fg(Color::Rgb(80, 160, 150))),
+            ]))
+        };
+        f.render_widget(line2.alignment(Alignment::Center), sub[1]);
     }
 }
 
 fn draw_ir_search_modal(f: &mut Frame, query: &str, area: Rect) {
-    let popup = centered_rect(60, 28, area);
+    let popup = centered_rect(65, 30, area);
     f.render_widget(Clear, popup);
 
     let block = Block::default()
-        .title(" SEARCH HTTPS://WWW.INTERNET-RADIO.COM/ ")
+        .title(" SEARCH HTTPS://WWW.INTERNET-RADIO.COM/ ( ͡° ͜ʖ ͡°) ")
         .borders(Borders::ALL)
         .border_style(Style::default().fg(CYAN))
         .style(Style::default().bg(PANEL));
@@ -1691,7 +1783,7 @@ fn draw_ir_search_modal(f: &mut Frame, query: &str, area: Rect) {
         .split(popup);
 
     let prompt = Paragraph::new(Span::styled(
-        "Enter station genre, name, or keywords (e.g. ambient, synthwave, jazz, lofi):",
+        "Spill a keyword, genre, or vibe before I lose my patience (e.g. ambient, cyberpunk, synthwave):",
         Style::default().fg(TEXT),
     ));
     f.render_widget(prompt, inner[0]);
@@ -1708,19 +1800,19 @@ fn draw_ir_search_modal(f: &mut Frame, query: &str, area: Rect) {
 
     let hints = Paragraph::new(vec![Line::from(vec![
         Span::styled(" [ENTER] ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
-        Span::styled("Search   ", Style::default().fg(MUTED)),
+        Span::styled("Unleash hounds   ", Style::default().fg(MUTED)),
         Span::styled(" [ESC] ", Style::default().fg(RED).add_modifier(Modifier::BOLD)),
-        Span::styled("Cancel", Style::default().fg(MUTED)),
+        Span::styled("Chicken out ¯\\_(ツ)_/¯", Style::default().fg(MUTED)),
     ])]);
     f.render_widget(hints, inner[2]);
 }
 
 fn draw_add_station_modal(f: &mut Frame, form: &AddStationForm, area: Rect) {
-    let popup = centered_rect(66, 55, area);
+    let popup = centered_rect(68, 60, area);
     f.render_widget(Clear, popup);
 
     let block = Block::default()
-        .title(" ADD CUSTOM RADIO STATION ")
+        .title(" INJECT SKETCHY CUSTOM STREAM (ง'̀-'́)ง ")
         .borders(Borders::ALL)
         .border_style(Style::default().fg(GREEN))
         .style(Style::default().bg(PANEL));
@@ -1748,7 +1840,7 @@ fn draw_add_station_modal(f: &mut Frame, form: &AddStationForm, area: Rect) {
     ))
     .block(
         Block::default()
-            .title(" Station Name * ")
+            .title(" Station Moniker * (give it a name or else ಠ_ಠ) ")
             .borders(Borders::ALL)
             .border_style(Style::default().fg(if f0_active { GREEN } else { MUTED }))
             .style(Style::default().bg(Color::Rgb(10, 16, 22))),
@@ -1764,7 +1856,7 @@ fn draw_add_station_modal(f: &mut Frame, form: &AddStationForm, area: Rect) {
     ))
     .block(
         Block::default()
-            .title(" Stream URL (.mp3 / .pls / .m3u / icecast / shoutcast) * ")
+            .title(" Stream Pipeline URL * (.mp3 / .pls / .m3u / icecast / raw noise) ")
             .borders(Borders::ALL)
             .border_style(Style::default().fg(if f1_active { GREEN } else { MUTED }))
             .style(Style::default().bg(Color::Rgb(10, 16, 22))),
@@ -1780,7 +1872,7 @@ fn draw_add_station_modal(f: &mut Frame, form: &AddStationForm, area: Rect) {
     ))
     .block(
         Block::default()
-            .title(" Genre (optional, default: CUSTOM) ")
+            .title(" Vibe / Genre (whatever nonsense tag you like, default: CUSTOM) ")
             .borders(Borders::ALL)
             .border_style(Style::default().fg(if f2_active { GREEN } else { MUTED }))
             .style(Style::default().bg(Color::Rgb(10, 16, 22))),
@@ -1796,7 +1888,7 @@ fn draw_add_station_modal(f: &mut Frame, form: &AddStationForm, area: Rect) {
     ))
     .block(
         Block::default()
-            .title(" Description (optional) ")
+            .title(" Description (bullshit excuse for listening to this) ")
             .borders(Borders::ALL)
             .border_style(Style::default().fg(if f3_active { GREEN } else { MUTED }))
             .style(Style::default().bg(Color::Rgb(10, 16, 22))),
@@ -1811,7 +1903,7 @@ fn draw_add_station_modal(f: &mut Frame, form: &AddStationForm, area: Rect) {
         ))
     } else {
         Line::from(Span::styled(
-            " Station will be saved locally to ~/.config/hakfm/config.json",
+            " Saving this biohazard payload to ~/.config/hakfm/config.json",
             Style::default().fg(MUTED),
         ))
     };
@@ -1820,21 +1912,21 @@ fn draw_add_station_modal(f: &mut Frame, form: &AddStationForm, area: Rect) {
     // Key hints
     let hints = Line::from(vec![
         Span::styled(" [Tab/↓] ", Style::default().fg(CYAN).add_modifier(Modifier::BOLD)),
-        Span::styled("Next field  ", Style::default().fg(MUTED)),
+        Span::styled("Next torture field  ", Style::default().fg(MUTED)),
         Span::styled(" [Enter] ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
-        Span::styled("Save Station  ", Style::default().fg(MUTED)),
+        Span::styled("Inject into matrix  ", Style::default().fg(MUTED)),
         Span::styled(" [Esc] ", Style::default().fg(RED).add_modifier(Modifier::BOLD)),
-        Span::styled("Cancel", Style::default().fg(MUTED)),
+        Span::styled("Chicken out ¯\\_(ツ)_/¯", Style::default().fg(MUTED)),
     ]);
     f.render_widget(Paragraph::new(hints), rows[5]);
 }
 
 fn draw_help_modal(f: &mut Frame, area: Rect) {
-    let popup = centered_rect(65, 75, area);
+    let popup = centered_rect(70, 85, area);
     f.render_widget(Clear, popup);
     f.render_widget(
         Block::default()
-            .title(" HELP & CONTROLS ")
+            .title(" SURVIVAL MANUAL & KEYBINDINGS (FOR NOOBS & CHAMPS) ")
             .borders(Borders::ALL)
             .border_style(Style::default().fg(GREEN))
             .style(Style::default().bg(PANEL)),
@@ -1843,37 +1935,44 @@ fn draw_help_modal(f: &mut Frame, area: Rect) {
 
     let help = Paragraph::new(vec![
         Line::from(Span::styled(
-            "Keyboard Shortcuts",
+            "How to pilot this chaotic noise machine without crying (ง'̀-'́)ง",
             Style::default().fg(GREEN).add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
-        Line::from("↑ / k       Move selection up"),
-        Line::from("↓ / j       Move selection down"),
-        Line::from("Enter       Play selected station"),
-        Line::from("Space       Stop / resume selected station"),
-        Line::from("← / h       Previous station and play"),
-        Line::from("→ / l       Next station and play"),
-        Line::from("Tab         Switch views: [1] Library  <->  [2] Internet-Radio"),
-        Line::from("i           Search internet-radio.com in TUI"),
-        Line::from("a           Add custom station URL (or add IR station to library)"),
-        Line::from("d / Del     Delete selected custom station"),
-        Line::from("/           Filter stations in library"),
-        Line::from("s           Toggle favorite (starred)"),
-        Line::from("f           Show / hide favorites only"),
-        Line::from("x           Stop playback"),
-        Line::from("r           Reset search filters"),
-        Line::from("?           Close this manual"),
-        Line::from("q           Quit application"),
+        Line::from("↑ / k       Stalk up (Vim keys for real hackers, arrows for noobs)"),
+        Line::from("↓ / j       Stalk down (respect the Vim supremacy)"),
+        Line::from("Enter       Blast the selected noise transmitter into your skull"),
+        Line::from("Space       Toggle chill / blast (or enjoy sweet, sweet silence)"),
+        Line::from("← / h       Previous frequency (instant ear damage)"),
+        Line::from("→ / l       Next frequency (keep rolling the dice)"),
+        Line::from("Tab / 1 / 2 Flip between [1: The Vault] <-> [2: Web Piracy]"),
+        Line::from("i           Raid internet-radio.com for unholy frequencies"),
+        Line::from("a           Inject custom station URL (or kidnap IR station to Vault)"),
+        Line::from("d / Del     Nuke user-added station into digital oblivion [x_x]"),
+        Line::from("/           Sniff out stations by search query"),
+        Line::from("s           Simp / Star station (save to your dirty secrets ★)"),
+        Line::from("f           Filter down to your starred obsessions only"),
+        Line::from("x           Mercilessly slaughter playback [x_x]"),
+        Line::from("r           Wipe overcomplicated filters back to zero ¯\\_(ツ)_/¯"),
+        Line::from("?           Toggle this glorious cheat-sheet"),
+        Line::from("q           Ragequit like a coward (with exit confirmation warning!)"),
         Line::from(""),
         Line::from(Span::styled(
-            "Developer & Contact",
+            "Supreme Mastermind & Overlord (⌐■_■)",
             Style::default().fg(CYAN).add_modifier(Modifier::BOLD),
         )),
-        Line::from(format!("  Author:  {AUTHOR_NAME}")),
-        Line::from(format!("  Contact: {AUTHOR_URL}")),
+        Line::from(vec![
+            Span::styled("  Author:   ", Style::default().fg(MUTED)),
+            Span::styled(format!("{AUTHOR_NAME} (Delta)"), Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
+            Span::styled("  ¯\\_(ツ)_/¯", Style::default().fg(YELLOW)),
+        ]),
+        Line::from(vec![
+            Span::styled("  Contact:  ", Style::default().fg(MUTED)),
+            Span::styled(AUTHOR_URL, Style::default().fg(CYAN).add_modifier(Modifier::UNDERLINED)),
+        ]),
         Line::from(""),
         Line::from(Span::styled(
-            "Requires mpv installed and an internet connection.",
+            "Requires mpv installed and internet. Don't come crying if your WiFi sucks. 凸(¬‿¬)凸",
             Style::default().fg(MUTED),
         )),
     ])
