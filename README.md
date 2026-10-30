@@ -20,7 +20,6 @@ A Rust terminal radio receiver for hacker focus, ambient work sessions, and late
 - Dual view modes: Library view and Internet-Radio view with quick tab switching
 - Keyboard navigation (both arrow keys and Vim-style `hjkl`)
 - Playback status, animated waveform, elapsed session timer, and connection-ended detection
-- Hyperlinked author credit to [Delta Fsociety](https://zist.digital/delta/contact-me/) via terminal OSC 8 hyperlinks
 - No browser required; lightweight audio playback powered by `mpv`
 
 
