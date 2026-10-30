@@ -13,10 +13,11 @@ use ratatui::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    fs,
-    io,
+    fs, io,
     path::PathBuf,
     process::{Child, Command, Stdio},
+    sync::mpsc,
+    thread,
     time::{Duration, Instant},
 };
 
@@ -27,19 +28,50 @@ const MUTED: Color = Color::Rgb(105, 130, 140);
 const TEXT: Color = Color::Rgb(220, 235, 235);
 const CYAN: Color = Color::Rgb(60, 210, 220);
 const RED: Color = Color::Rgb(255, 90, 105);
+const YELLOW: Color = Color::Rgb(255, 204, 0);
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct Station {
-    name: String,
-    genre: String,
-    description: String,
-    url: String,
+const AUTHOR_NAME: &str = "Delta Fsociety";
+const AUTHOR_URL: &str = "https://zist.digital/delta/contact-me/";
+
+const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum StationSource {
+    #[default]
+    Preset,
+    Custom,
+    InternetRadio,
 }
 
-fn stations() -> Vec<Station> {
-    // Direct SomaFM MP3 streams. These are broadcaster stream URLs, not HAK.FM APIs.
-    let rows = [
-        ("DEF CON Radio", "HACKER", "The year-round DEF CON channel.", "defcon"),
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Station {
+    pub name: String,
+    pub genre: String,
+    pub description: String,
+    pub url: String,
+    #[serde(default)]
+    pub source: StationSource,
+}
+
+fn preset_stations() -> Vec<Station> {
+    let mut list = vec![
+        Station {
+            name: "DEF CON Radio".into(),
+            genre: "HACKER".into(),
+            description: "The year-round DEF CON channel.".into(),
+            url: "https://ice5.somafm.com/defcon-128-mp3".into(),
+            source: StationSource::Preset,
+        },
+        Station {
+            name: "MansionNET Radio".into(),
+            genre: "COMMUNITY".into(),
+            description: "Privacy-first community radio from MansionNET.".into(),
+            url: "https://radio.inthemansion.com/listen/mansionnet/radio.mp3".into(),
+            source: StationSource::Preset,
+        },
+    ];
+
+    let somafm_rows = [
         ("Groove Salad", "FOCUS", "Downtempo grooves for long sessions.", "groovesalad"),
         ("Drone Zone", "AMBIENT", "Slow atmospheric soundscapes.", "dronezone"),
         ("Deep Space One", "AMBIENT", "Deep ambient for quiet work.", "deepspaceone"),
@@ -49,65 +81,338 @@ fn stations() -> Vec<Station> {
         ("Groove Salad Classic", "DOWNTEMPO", "Classic early-2000s chill.", "gsclassic"),
         ("Space Station Soma", "SPACE", "Spaced-out ambient electronica.", "spacestation"),
         ("Mission Control", "SPACE", "Mission audio woven into electronica.", "missioncontrol"),
-        ("Vaporwaves", "VAPORWAVE", "A hazy vaporwave signal.", " vaporwaves"),
+        ("Vaporwaves", "VAPORWAVE", "A hazy vaporwave signal.", "vaporwaves"),
         ("Underground 80s", "SYNTH / NEW WAVE", "Early-80s synthpop and new wave.", "u80s"),
         ("Metal Detector", "METAL", "From black metal to doom and thrash.", "metal"),
         ("Dub Step Beyond", "BASS", "Dubstep, dub, and deep bass.", "dubstep"),
-        ("Secret Agent", "SPY JAZZ", "Spy jazz and lounge atmosphere.", " secretagent"),
+        ("Secret Agent", "SPY JAZZ", "Spy jazz and lounge atmosphere.", "secretagent"),
         ("Sonic Universe", "JAZZ", "Modern jazz and fusion.", "sonicuniverse"),
         ("Beat Blender", "ELECTRONIC", "Downtempo and electronic grooves.", "beatblender"),
         ("The Trip", "PSYCHEDELIC", "Psychedelic electronic journeys.", "thetrip"),
         ("Lush", "CHILL", "Atmospheric vocals and electronic music.", "lush"),
-        ("Underground 80s", "SYNTH", "80s underground alternative.", "u80s"),
         ("Illinois Street Lounge", "LOUNGE", "Vintage lounge and exotica.", "illstreet"),
         ("Fluid", "DOWNTEMPO", "Downtempo electronic music.", "fluid"),
         ("PopTron", "INDIE", "Indie pop and alternative.", "poptron"),
         ("Black Rock FM", "FESTIVAL", "Burning Man community radio.", "brfm"),
     ];
-    rows.iter().map(|(name, genre, description, slug)| {
+
+    for (name, genre, description, slug) in somafm_rows {
         let slug = slug.trim();
-        Station {
-            name: (*name).to_string(),
-            genre: (*genre).to_string(),
-            description: (*description).to_string(),
+        list.push(Station {
+            name: name.to_string(),
+            genre: genre.to_string(),
+            description: description.to_string(),
             url: format!("https://ice5.somafm.com/{slug}-128-mp3"),
-        }
-    }).collect()
+            source: StationSource::Preset,
+        });
+    }
+
+    list
+}
+
+fn default_volume() -> u8 {
+    65
 }
 
 #[derive(Default, Serialize, Deserialize)]
 struct Config {
+    #[serde(default)]
     favorites: Vec<String>,
+    #[serde(default)]
     last_station: Option<String>,
+    #[serde(default = "default_volume")]
     volume: u8,
+    #[serde(default)]
+    custom_stations: Vec<Station>,
 }
 
 fn config_path() -> PathBuf {
-    dirs::config_dir().unwrap_or_else(|| PathBuf::from("."))
-        .join("hakfm").join("config.json")
+    dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("hakfm")
+        .join("config.json")
 }
 
 fn load_config() -> Config {
-    fs::read_to_string(config_path()).ok()
+    fs::read_to_string(config_path())
+        .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or(Config { volume: 65, ..Config::default() })
+        .unwrap_or(Config {
+            volume: default_volume(),
+            ..Config::default()
+        })
 }
 
 fn save_config(config: &Config) {
     let path = config_path();
-    if let Some(parent) = path.parent() { let _ = fs::create_dir_all(parent); }
-    if let Ok(data) = serde_json::to_string_pretty(config) { let _ = fs::write(path, data); }
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    if let Ok(data) = serde_json::to_string_pretty(config) {
+        let _ = fs::write(path, data);
+    }
+}
+
+// ---------------------------------------------------------
+// Internet-Radio.com Scraper & Search
+// ---------------------------------------------------------
+
+fn url_encode(input: &str) -> String {
+    let mut encoded = String::new();
+    for b in input.bytes() {
+        match b {
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                encoded.push(b as char);
+            }
+            b' ' => encoded.push('+'),
+            _ => {
+                encoded.push_str(&format!("%{:02X}", b));
+            }
+        }
+    }
+    encoded
+}
+
+fn unescape_html(input: &str) -> String {
+    let mut result = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '&' {
+            let mut entity = String::new();
+            while let Some(&next_c) = chars.peek() {
+                if next_c == ';' {
+                    chars.next();
+                    break;
+                } else if next_c == ' ' || next_c == '<' || entity.len() > 10 {
+                    break;
+                }
+                entity.push(chars.next().unwrap());
+            }
+            match entity.as_str() {
+                "amp" => result.push('&'),
+                "quot" => result.push('"'),
+                "apos" | "#039" | "#39" => result.push('\''),
+                "lt" => result.push('<'),
+                "gt" => result.push('>'),
+                "nbsp" => result.push(' '),
+                s if s.starts_with('#') => {
+                    if let Ok(cp) = s[1..].parse::<u32>() {
+                        if let Some(ch) = char::from_u32(cp) {
+                            result.push(ch);
+                        } else {
+                            result.push_str(&format!("&{};", s));
+                        }
+                    } else {
+                        result.push_str(&format!("&{};", s));
+                    }
+                }
+                other => {
+                    result.push('&');
+                    result.push_str(other);
+                    result.push(';');
+                }
+            }
+        } else {
+            result.push(c);
+        }
+    }
+    result
+}
+
+fn strip_tags(input: &str) -> String {
+    let mut in_tag = false;
+    let mut out = String::with_capacity(input.len());
+    for c in input.chars() {
+        if c == '<' {
+            in_tag = true;
+        } else if c == '>' {
+            in_tag = false;
+        } else if !in_tag {
+            out.push(c);
+        }
+    }
+    out
+}
+
+fn search_internet_radio(query: &str) -> Result<Vec<Station>, String> {
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let encoded_query = url_encode(trimmed);
+    let url = format!("https://www.internet-radio.com/search/?radio={encoded_query}");
+
+    let resp = ureq::get(&url)
+        .set("User-Agent", "Mozilla/5.0 (hakfm; Linux x86_64; rv:120.0)")
+        .timeout(Duration::from_secs(12))
+        .call()
+        .map_err(|e| format!("Network request failed: {e}"))?;
+
+    let html = resp
+        .into_string()
+        .map_err(|e| format!("Failed to read web response: {e}"))?;
+
+    let mut stations = Vec::new();
+
+    for row in html.split("<tr>").skip(1) {
+        let row = match row.split("</tr>").next() {
+            Some(r) => r,
+            None => continue,
+        };
+
+        let stream_url = if let Some(pos) = row.find("/servers/tools/playlistgenerator/?u=") {
+            let rest = &row[pos..];
+            let end = rest.find('"').or_else(|| rest.find('\'')).unwrap_or(rest.len());
+            let raw = &rest[..end].replace("&amp;", "&");
+            if raw.starts_with('/') {
+                format!("https://www.internet-radio.com{raw}")
+            } else {
+                raw.to_string()
+            }
+        } else if let Some(pos) = row.find("http://").or_else(|| row.find("https://")) {
+            let rest = &row[pos..];
+            let end = rest.find('"').or_else(|| rest.find('\'')).unwrap_or(rest.len());
+            let raw = &rest[..end].replace("&amp;", "&");
+            if raw.ends_with(".pls") || raw.ends_with(".m3u") {
+                raw.to_string()
+            } else {
+                continue;
+            }
+        } else {
+            continue;
+        };
+
+        let name = if let Some(h4_start) = row.find("<h4") {
+            let after_h4 = &row[h4_start..];
+            if let Some(tag_end) = after_h4.find('>') {
+                let content = &after_h4[tag_end + 1..];
+                if let Some(h4_close) = content.find("</h4>") {
+                    unescape_html(&strip_tags(&content[..h4_close]))
+                } else {
+                    "Unknown Station".to_string()
+                }
+            } else {
+                "Unknown Station".to_string()
+            }
+        } else {
+            "Unknown Station".to_string()
+        };
+        let name = name.trim().to_string();
+        if name.is_empty() {
+            continue;
+        }
+
+        let genre = if let Some(g_start) = row.find("Genres:") {
+            let rest = &row[g_start + 7..];
+            let end = rest.find("</td>").unwrap_or(rest.len().min(300));
+            let g = unescape_html(&strip_tags(&rest[..end]));
+            let clean = g.split_whitespace().collect::<Vec<_>>().join(" ");
+            if clean.is_empty() {
+                "INTERNET-RADIO".to_string()
+            } else {
+                clean.to_uppercase()
+            }
+        } else {
+            "INTERNET-RADIO".to_string()
+        };
+
+        let desc = if let Some(i_start) = row.find("<i") {
+            let rest = &row[i_start..];
+            if let Some(tag_end) = rest.find('>') {
+                let content = &rest[tag_end + 1..];
+                if let Some(i_close) = content.find("</i>") {
+                    unescape_html(&strip_tags(&content[..i_close]))
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        };
+
+        let bitrate = if let Some(kbps_idx) = row.find("Kbps") {
+            let before = &row[..kbps_idx];
+            let num: String = before
+                .chars()
+                .rev()
+                .take_while(|c| c.is_ascii_digit() || *c == ' ')
+                .collect::<String>()
+                .chars()
+                .rev()
+                .collect();
+            let num = num.trim();
+            if !num.is_empty() {
+                format!("{num} Kbps")
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        };
+
+        let description = if !bitrate.is_empty() && !desc.trim().is_empty() {
+            format!("{bitrate} · {}", desc.trim())
+        } else if !bitrate.is_empty() {
+            format!("{bitrate} stream")
+        } else if !desc.trim().is_empty() {
+            desc.trim().to_string()
+        } else {
+            "Internet radio stream".to_string()
+        };
+
+        stations.push(Station {
+            name,
+            genre,
+            description,
+            url: stream_url,
+            source: StationSource::InternetRadio,
+        });
+    }
+
+    Ok(stations)
+}
+
+// ---------------------------------------------------------
+// View & Input Modes
+// ---------------------------------------------------------
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ViewMode {
+    Library,
+    InternetRadio,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum InputMode {
+    Normal,
+    Filter,
+    InternetRadioSearch,
+    AddStation,
+}
+
+#[derive(Default)]
+struct AddStationForm {
+    name: String,
+    url: String,
+    genre: String,
+    description: String,
+    focused_field: usize, // 0: Name, 1: URL, 2: Genre, 3: Description
+    error_msg: Option<String>,
 }
 
 struct App {
     stations: Vec<Station>,
     filtered: Vec<usize>,
     selected: usize,
-    current: Option<usize>,
     config: Config,
-    search_mode: bool,
+    view_mode: ViewMode,
+    input_mode: InputMode,
     search: String,
     status: String,
+    current_station: Option<Station>,
     player: Option<Child>,
     paused: bool,
     started: Option<Instant>,
@@ -115,58 +420,141 @@ struct App {
     show_help: bool,
     show_favorites: bool,
     should_quit: bool,
+    spinner_tick: usize,
+
+    // Internet-Radio.com search
+    ir_query: String,
+    ir_search_input: String,
+    ir_stations: Vec<Station>,
+    ir_selected: usize,
+    ir_loading: bool,
+    ir_tx: mpsc::Sender<Result<Vec<Station>, String>>,
+    ir_rx: mpsc::Receiver<Result<Vec<Station>, String>>,
+
+    // Add custom station form
+    add_form: AddStationForm,
 }
 
 impl App {
     fn new() -> Self {
-        let stations = stations();
+        let mut stations = preset_stations();
         let config = load_config();
+
+        for custom in &config.custom_stations {
+            let mut c = custom.clone();
+            c.source = StationSource::Custom;
+            stations.push(c);
+        }
+
+        let (ir_tx, ir_rx) = mpsc::channel();
+
         let mut app = Self {
-            stations, filtered: Vec::new(), selected: 0, current: None, config,
-            search_mode: false, search: String::new(),
+            stations,
+            filtered: Vec::new(),
+            selected: 0,
+            config,
+            view_mode: ViewMode::Library,
+            input_mode: InputMode::Normal,
+            search: String::new(),
             status: "Ready. Pick a station.".into(),
-            player: None, paused: false, started: None,
-            elapsed_base: Duration::ZERO, show_help: false, show_favorites: false,
+            current_station: None,
+            player: None,
+            paused: false,
+            started: None,
+            elapsed_base: Duration::ZERO,
+            show_help: false,
+            show_favorites: false,
             should_quit: false,
+            spinner_tick: 0,
+
+            ir_query: String::new(),
+            ir_search_input: String::new(),
+            ir_stations: Vec::new(),
+            ir_selected: 0,
+            ir_loading: false,
+            ir_tx,
+            ir_rx,
+
+            add_form: AddStationForm::default(),
         };
+
         app.rebuild_filter();
+
+        // Restore last station if configured
+        if let Some(last_name) = &app.config.last_station {
+            if let Some(idx) = app.stations.iter().position(|s| &s.name == last_name) {
+                if let Some(fpos) = app.filtered.iter().position(|&fi| fi == idx) {
+                    app.selected = fpos;
+                }
+            }
+        }
+
         app
     }
 
     fn rebuild_filter(&mut self) {
         let query = self.search.to_lowercase();
-        self.filtered = self.stations.iter().enumerate().filter(|(_, s)| {
-            let favorite_ok = !self.show_favorites || self.config.favorites.contains(&s.name);
-            let search_ok = query.is_empty()
-                || s.name.to_lowercase().contains(&query)
-                || s.genre.to_lowercase().contains(&query)
-                || s.description.to_lowercase().contains(&query);
-            favorite_ok && search_ok
-        }).map(|(i, _)| i).collect();
-        if self.filtered.is_empty() { self.selected = 0; }
-        else if self.selected >= self.filtered.len() { self.selected = self.filtered.len() - 1; }
+        self.filtered = self
+            .stations
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| {
+                let favorite_ok = !self.show_favorites || self.config.favorites.contains(&s.name);
+                let search_ok = query.is_empty()
+                    || s.name.to_lowercase().contains(&query)
+                    || s.genre.to_lowercase().contains(&query)
+                    || s.description.to_lowercase().contains(&query);
+                favorite_ok && search_ok
+            })
+            .map(|(i, _)| i)
+            .collect();
+
+        if self.filtered.is_empty() {
+            self.selected = 0;
+        } else if self.selected >= self.filtered.len() {
+            self.selected = self.filtered.len() - 1;
+        }
     }
 
     fn play_selected(&mut self) {
-        if self.filtered.is_empty() { self.status = "No stations match that search.".into(); return; }
-        let idx = self.filtered[self.selected];
-        self.play_station(idx);
+        match self.view_mode {
+            ViewMode::Library => {
+                if self.filtered.is_empty() {
+                    self.status = "No stations match this filter.".into();
+                    return;
+                }
+                let idx = self.filtered[self.selected];
+                let station = self.stations[idx].clone();
+                self.play_station(station);
+            }
+            ViewMode::InternetRadio => {
+                if self.ir_stations.is_empty() {
+                    self.status = "No internet-radio stations available.".into();
+                    return;
+                }
+                let station = self.ir_stations[self.ir_selected].clone();
+                self.play_station(station);
+            }
+        }
     }
 
-    fn play_station(&mut self, idx: usize) {
+    fn play_station(&mut self, station: Station) {
         self.stop_player();
-        let station = &self.stations[idx];
         let url = station.url.clone();
         let name = station.name.clone();
+
         let child = Command::new("mpv")
             .args(["--no-video", "--really-quiet", "--force-window=no", "--term-status-msg="])
-            .arg(url)
-            .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())
+            .arg(&url)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .spawn();
+
         match child {
             Ok(child) => {
                 self.player = Some(child);
-                self.current = Some(idx);
+                self.current_station = Some(station);
                 self.paused = false;
                 self.started = Some(Instant::now());
                 self.elapsed_base = Duration::ZERO;
@@ -189,10 +577,9 @@ impl App {
     }
 
     fn toggle_pause(&mut self) {
-
-        if let Some(idx) = self.current {
+        if let Some(station) = self.current_station.clone() {
             if self.paused {
-                self.play_station(idx);
+                self.play_station(station);
             } else {
                 self.stop_player();
                 self.paused = true;
@@ -204,41 +591,199 @@ impl App {
     }
 
     fn next(&mut self, delta: isize) {
-        if self.filtered.is_empty() { return; }
-        let len = self.filtered.len() as isize;
-        self.selected = (self.selected as isize + delta).rem_euclid(len) as usize;
-        self.play_selected();
+        match self.view_mode {
+            ViewMode::Library => {
+                if self.filtered.is_empty() {
+                    return;
+                }
+                let len = self.filtered.len() as isize;
+                self.selected = (self.selected as isize + delta).rem_euclid(len) as usize;
+                self.play_selected();
+            }
+            ViewMode::InternetRadio => {
+                if self.ir_stations.is_empty() {
+                    return;
+                }
+                let len = self.ir_stations.len() as isize;
+                self.ir_selected = (self.ir_selected as isize + delta).rem_euclid(len) as usize;
+                self.play_selected();
+            }
+        }
     }
 
     fn toggle_favorite(&mut self) {
-        if self.filtered.is_empty() { return; }
-        let name = self.stations[self.filtered[self.selected]].name.clone();
-        if let Some(pos) = self.config.favorites.iter().position(|n| n == &name) {
+        let name_to_fav = match self.view_mode {
+            ViewMode::Library => {
+                if self.filtered.is_empty() {
+                    return;
+                }
+                self.stations[self.filtered[self.selected]].name.clone()
+            }
+            ViewMode::InternetRadio => {
+                if self.ir_stations.is_empty() {
+                    return;
+                }
+                let ir_st = self.ir_stations[self.ir_selected].clone();
+                // If not in library, add it as custom station
+                if !self.stations.iter().any(|s| s.name == ir_st.name) {
+                    let mut custom = ir_st.clone();
+                    custom.source = StationSource::Custom;
+                    self.config.custom_stations.push(custom.clone());
+                    self.stations.push(custom);
+                }
+                ir_st.name
+            }
+        };
+
+        if let Some(pos) = self.config.favorites.iter().position(|n| n == &name_to_fav) {
             self.config.favorites.remove(pos);
-            self.status = format!("Removed {name} from favorites.");
+            self.status = format!("Removed {name_to_fav} from favorites.");
         } else {
-            self.config.favorites.push(name.clone());
-            self.status = format!("Added {name} to favorites.");
+            self.config.favorites.push(name_to_fav.clone());
+            self.status = format!("Added {name_to_fav} to favorites.");
         }
         save_config(&self.config);
         self.rebuild_filter();
     }
 
+    fn add_selected_ir_to_library(&mut self) {
+        if self.ir_stations.is_empty() {
+            return;
+        }
+        let ir_st = self.ir_stations[self.ir_selected].clone();
+        if self.stations.iter().any(|s| s.name == ir_st.name || s.url == ir_st.url) {
+            self.status = format!("'{}' is already in your library.", ir_st.name);
+            return;
+        }
+
+        let mut custom = ir_st.clone();
+        custom.source = StationSource::Custom;
+        self.config.custom_stations.push(custom.clone());
+        save_config(&self.config);
+        self.stations.push(custom);
+        self.rebuild_filter();
+        self.status = format!("Added '{}' to your library!", ir_st.name);
+    }
+
+    fn delete_selected_custom_station(&mut self) {
+        if self.view_mode != ViewMode::Library || self.filtered.is_empty() {
+            return;
+        }
+        let idx = self.filtered[self.selected];
+        let station = &self.stations[idx];
+        if station.source != StationSource::Custom {
+            self.status = "Preset stations cannot be deleted.".into();
+            return;
+        }
+
+        let name = station.name.clone();
+        let url = station.url.clone();
+        self.config.custom_stations.retain(|s| s.name != name && s.url != url);
+        self.config.favorites.retain(|n| n != &name);
+        save_config(&self.config);
+
+        self.stations.remove(idx);
+        self.rebuild_filter();
+        self.status = format!("Deleted custom station '{name}'.");
+    }
+
+    fn start_ir_search(&mut self) {
+        let query = self.ir_search_input.trim().to_string();
+        if query.is_empty() {
+            self.status = "Please enter a search term.".into();
+            return;
+        }
+
+        self.ir_query = query.clone();
+        self.ir_loading = true;
+        self.ir_stations.clear();
+        self.ir_selected = 0;
+        self.view_mode = ViewMode::InternetRadio;
+        self.status = format!("Searching internet-radio.com for '{query}'...");
+
+        let tx = self.ir_tx.clone();
+        thread::spawn(move || {
+            let res = search_internet_radio(&query);
+            let _ = tx.send(res);
+        });
+    }
+
+    fn save_add_station_form(&mut self) {
+        let name = self.add_form.name.trim().to_string();
+        let url = self.add_form.url.trim().to_string();
+        let genre = self.add_form.genre.trim().to_string();
+        let desc = self.add_form.description.trim().to_string();
+
+        if name.is_empty() {
+            self.add_form.error_msg = Some("Station name is required.".into());
+            self.add_form.focused_field = 0;
+            return;
+        }
+        if url.is_empty() {
+            self.add_form.error_msg = Some("Stream URL is required.".into());
+            self.add_form.focused_field = 1;
+            return;
+        }
+
+        let final_genre = if genre.is_empty() { "CUSTOM".into() } else { genre.to_uppercase() };
+        let final_desc = if desc.is_empty() { "User-added custom station".into() } else { desc };
+
+        let new_station = Station {
+            name: name.clone(),
+            genre: final_genre,
+            description: final_desc,
+            url,
+            source: StationSource::Custom,
+        };
+
+        self.config.custom_stations.push(new_station.clone());
+        save_config(&self.config);
+
+        self.stations.push(new_station);
+        self.rebuild_filter();
+
+        // Select the newly added station in library
+        if let Some(pos) = self.filtered.iter().position(|&fi| self.stations[fi].name == name) {
+            self.selected = pos;
+        }
+
+        self.status = format!("Station '{name}' added to library!");
+        self.input_mode = InputMode::Normal;
+        self.add_form = AddStationForm::default();
+        self.view_mode = ViewMode::Library;
+    }
+
     fn elapsed(&self) -> Duration {
-        if self.paused { self.elapsed_base }
-        else { self.started.map(|s| self.elapsed_base + s.elapsed()).unwrap_or(self.elapsed_base) }
+        if self.paused {
+            self.elapsed_base
+        } else {
+            self.started
+                .map(|s| self.elapsed_base + s.elapsed())
+                .unwrap_or(self.elapsed_base)
+        }
     }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    if !Command::new("mpv").arg("--version").stdout(Stdio::null()).stderr(Stdio::null()).status().map(|s| s.success()).unwrap_or(false) {
+    if !Command::new("mpv")
+        .arg("--version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+    {
         eprintln!("HAK.FM needs mpv. Install it on Arch with: sudo pacman -S mpv");
         std::process::exit(1);
     }
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, crossterm::event::EnableMouseCapture)?;
+    execute!(
+        stdout,
+        EnterAlternateScreen,
+        crossterm::event::EnableMouseCapture
+    )?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
     let mut app = App::new();
@@ -247,53 +792,243 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     app.stop_player();
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen, crossterm::event::DisableMouseCapture)?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        crossterm::event::DisableMouseCapture
+    )?;
     terminal.show_cursor()?;
     result?;
     Ok(())
 }
 
-fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<()> {
+fn run_app<B: ratatui::backend::Backend>(
+    terminal: &mut Terminal<B>,
+    app: &mut App,
+) -> io::Result<()> {
     loop {
-        terminal.draw(|f| draw(f, app))?;
-        if app.should_quit { break; }
-        if event::poll(Duration::from_millis(150))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind != KeyEventKind::Press { continue; }
-                if app.search_mode {
-                    match key.code {
-                        KeyCode::Esc => { app.search_mode = false; app.search.clear(); app.rebuild_filter(); }
-                        KeyCode::Enter => app.search_mode = false,
-                        KeyCode::Backspace => { app.search.pop(); app.rebuild_filter(); }
-                        KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => { app.search.push(c); app.rebuild_filter(); }
-                        _ => {}
+        // Poll for internet-radio background results
+        if let Ok(res) = app.ir_rx.try_recv() {
+            app.ir_loading = false;
+            match res {
+                Ok(stations) => {
+                    let count = stations.len();
+                    app.ir_stations = stations;
+                    app.ir_selected = 0;
+                    if count == 0 {
+                        app.status = format!(
+                            "No stations found on internet-radio.com for '{}'.",
+                            app.ir_query
+                        );
+                    } else {
+                        app.status = format!(
+                            "Found {} stations on internet-radio.com for '{}'.",
+                            count, app.ir_query
+                        );
                     }
-                    continue;
                 }
-                match key.code {
-                    KeyCode::Char('q') => app.should_quit = true,
-                    KeyCode::Char('?') => app.show_help = !app.show_help,
-                    KeyCode::Esc => { app.show_help = false; app.search.clear(); app.show_favorites = false; app.rebuild_filter(); }
-                    KeyCode::Char('/') => { app.search_mode = true; app.search.clear(); app.rebuild_filter(); }
-                    KeyCode::Char('f') => { app.show_favorites = !app.show_favorites; app.rebuild_filter(); }
-                    KeyCode::Char('s') => app.toggle_favorite(),
-                    KeyCode::Char(' ') => app.toggle_pause(),
-                    KeyCode::Char('x') => { app.stop_player(); app.current = None; app.status = "Playback stopped.".into(); }
-                    KeyCode::Enter => app.play_selected(),
-                    KeyCode::Down | KeyCode::Char('j') => {
-                        if !app.filtered.is_empty() { app.selected = (app.selected + 1).min(app.filtered.len() - 1); }
-                    }
-                    KeyCode::Up | KeyCode::Char('k') => { app.selected = app.selected.saturating_sub(1); }
-                    KeyCode::Right | KeyCode::Char('l') => app.next(1),
-                    KeyCode::Left | KeyCode::Char('h') => app.next(-1),
-                    KeyCode::Char('r') => {
-                        app.search.clear(); app.show_favorites = false; app.rebuild_filter();
-                        app.status = "Filters cleared.".into();
-                    }
-                    _ => {}
+                Err(err) => {
+                    app.status = format!("Search error: {err}");
                 }
             }
         }
+
+        terminal.draw(|f| draw(f, app))?;
+        if app.should_quit {
+            break;
+        }
+
+        if event::poll(Duration::from_millis(150))? {
+            if let Event::Key(key) = event::read()? {
+                if key.kind != KeyEventKind::Press {
+                    continue;
+                }
+
+                match app.input_mode {
+                    InputMode::Filter => match key.code {
+                        KeyCode::Esc => {
+                            app.input_mode = InputMode::Normal;
+                            app.search.clear();
+                            app.rebuild_filter();
+                        }
+                        KeyCode::Enter => {
+                            app.input_mode = InputMode::Normal;
+                        }
+                        KeyCode::Backspace => {
+                            app.search.pop();
+                            app.rebuild_filter();
+                        }
+                        KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                            app.search.push(c);
+                            app.rebuild_filter();
+                        }
+                        _ => {}
+                    },
+
+                    InputMode::InternetRadioSearch => match key.code {
+                        KeyCode::Esc => {
+                            app.input_mode = InputMode::Normal;
+                        }
+                        KeyCode::Enter => {
+                            app.input_mode = InputMode::Normal;
+                            app.start_ir_search();
+                        }
+                        KeyCode::Backspace => {
+                            app.ir_search_input.pop();
+                        }
+                        KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                            app.ir_search_input.push(c);
+                        }
+                        _ => {}
+                    },
+
+                    InputMode::AddStation => match key.code {
+                        KeyCode::Esc => {
+                            app.input_mode = InputMode::Normal;
+                            app.add_form = AddStationForm::default();
+                        }
+                        KeyCode::Tab | KeyCode::Down => {
+                            app.add_form.focused_field = (app.add_form.focused_field + 1) % 4;
+                        }
+                        KeyCode::BackTab | KeyCode::Up => {
+                            app.add_form.focused_field = (app.add_form.focused_field + 3) % 4;
+                        }
+                        KeyCode::Enter => {
+                            if app.add_form.focused_field < 3
+                                && (app.add_form.name.trim().is_empty()
+                                    || app.add_form.url.trim().is_empty())
+                            {
+                                app.add_form.focused_field += 1;
+                            } else {
+                                app.save_add_station_form();
+                            }
+                        }
+                        KeyCode::Backspace => {
+                            match app.add_form.focused_field {
+                                0 => {
+                                    app.add_form.name.pop();
+                                }
+                                1 => {
+                                    app.add_form.url.pop();
+                                }
+                                2 => {
+                                    app.add_form.genre.pop();
+                                }
+                                3 => {
+                                    app.add_form.description.pop();
+                                }
+                                _ => {}
+                            }
+                            app.add_form.error_msg = None;
+                        }
+                        KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                            match app.add_form.focused_field {
+                                0 => app.add_form.name.push(c),
+                                1 => app.add_form.url.push(c),
+                                2 => app.add_form.genre.push(c),
+                                3 => app.add_form.description.push(c),
+                                _ => {}
+                            }
+                            app.add_form.error_msg = None;
+                        }
+                        _ => {}
+                    },
+
+                    InputMode::Normal => match key.code {
+                        KeyCode::Char('q') => app.should_quit = true,
+                        KeyCode::Char('?') => app.show_help = !app.show_help,
+                        KeyCode::Esc => {
+                            app.show_help = false;
+                            app.search.clear();
+                            app.show_favorites = false;
+                            app.rebuild_filter();
+                            if app.view_mode == ViewMode::InternetRadio {
+                                app.view_mode = ViewMode::Library;
+                            }
+                        }
+                        KeyCode::Tab => {
+                            app.view_mode = match app.view_mode {
+                                ViewMode::Library => ViewMode::InternetRadio,
+                                ViewMode::InternetRadio => ViewMode::Library,
+                            };
+                        }
+                        KeyCode::Char('1') => {
+                            app.view_mode = ViewMode::Library;
+                        }
+                        KeyCode::Char('2') => {
+                            app.view_mode = ViewMode::InternetRadio;
+                        }
+                        KeyCode::Char('i') => {
+                            app.input_mode = InputMode::InternetRadioSearch;
+                            app.ir_search_input.clear();
+                        }
+                        KeyCode::Char('a') => {
+                            if app.view_mode == ViewMode::InternetRadio {
+                                app.add_selected_ir_to_library();
+                            } else {
+                                app.input_mode = InputMode::AddStation;
+                                app.add_form = AddStationForm::default();
+                            }
+                        }
+                        KeyCode::Char('d') | KeyCode::Delete => {
+                            app.delete_selected_custom_station();
+                        }
+                        KeyCode::Char('/') => {
+                            app.input_mode = InputMode::Filter;
+                            app.search.clear();
+                            app.rebuild_filter();
+                        }
+                        KeyCode::Char('f') => {
+                            if app.view_mode == ViewMode::Library {
+                                app.show_favorites = !app.show_favorites;
+                                app.rebuild_filter();
+                            }
+                        }
+                        KeyCode::Char('s') => app.toggle_favorite(),
+                        KeyCode::Char(' ') => app.toggle_pause(),
+                        KeyCode::Char('x') => {
+                            app.stop_player();
+                            app.current_station = None;
+                            app.status = "Playback stopped.".into();
+                        }
+                        KeyCode::Enter => app.play_selected(),
+                        KeyCode::Down | KeyCode::Char('j') => match app.view_mode {
+                            ViewMode::Library => {
+                                if !app.filtered.is_empty() {
+                                    app.selected = (app.selected + 1).min(app.filtered.len() - 1);
+                                }
+                            }
+                            ViewMode::InternetRadio => {
+                                if !app.ir_stations.is_empty() {
+                                    app.ir_selected =
+                                        (app.ir_selected + 1).min(app.ir_stations.len() - 1);
+                                }
+                            }
+                        },
+                        KeyCode::Up | KeyCode::Char('k') => match app.view_mode {
+                            ViewMode::Library => {
+                                app.selected = app.selected.saturating_sub(1);
+                            }
+                            ViewMode::InternetRadio => {
+                                app.ir_selected = app.ir_selected.saturating_sub(1);
+                            }
+                        },
+                        KeyCode::Right | KeyCode::Char('l') => app.next(1),
+                        KeyCode::Left | KeyCode::Char('h') => app.next(-1),
+                        KeyCode::Char('r') => {
+                            app.search.clear();
+                            app.show_favorites = false;
+                            app.rebuild_filter();
+                            app.status = "Filters reset.".into();
+                        }
+                        _ => {}
+                    },
+                }
+            }
+        }
+
+        app.spinner_tick = app.spinner_tick.wrapping_add(1);
+
         if let Some(child) = app.player.as_mut() {
             if let Ok(Some(_)) = child.try_wait() {
                 app.player = None;
@@ -308,140 +1043,843 @@ fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, app: &mut A
 fn draw(f: &mut Frame, app: &App) {
     let area = f.area();
     f.render_widget(Block::default().style(Style::default().bg(BG)), area);
-    let chunks = Layout::default().direction(Direction::Vertical).margin(1)
-        .constraints([Constraint::Length(3), Constraint::Length(4), Constraint::Min(8), Constraint::Length(3), Constraint::Length(2)])
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .margin(1)
+        .constraints([
+            Constraint::Length(3), // Header & Tabs
+            Constraint::Length(4), // Now Playing & Waveform
+            Constraint::Min(8),    // Body (Left: list, Right: details)
+            Constraint::Length(3), // Keys / Shortcuts
+            Constraint::Length(2), // Footer & Delta Fsociety link
+        ])
         .split(area);
 
-    let header = Paragraph::new(vec![
-        Line::from(vec![
-            Span::styled(" HAK", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
-            Span::styled(".FM", Style::default().fg(TEXT).add_modifier(Modifier::BOLD)),
-            Span::styled("  /  RADIO", Style::default().fg(MUTED)),
-            Span::raw(" "),
-            Span::styled("●", Style::default().fg(if app.player.is_some() { GREEN } else { MUTED })),
-            Span::styled(if app.player.is_some() { " ON AIR " } else { " IDLE " }, Style::default().fg(if app.player.is_some() { GREEN } else { MUTED })),
-        ]),
-        Line::from(Span::styled("internet radio for late sessions", Style::default().fg(MUTED))),
-    ]).block(Block::default().borders(Borders::BOTTOM).border_style(Style::default().fg(Color::Rgb(30, 55, 60))));
+    // 1. Header with View Tabs
+    let lib_active = app.view_mode == ViewMode::Library;
+    let ir_active = app.view_mode == ViewMode::InternetRadio;
+
+    let header_line1 = Line::from(vec![
+        Span::styled(" HAK", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
+        Span::styled(".FM", Style::default().fg(TEXT).add_modifier(Modifier::BOLD)),
+        Span::styled("  /  RADIO ", Style::default().fg(MUTED)),
+        Span::styled("●", Style::default().fg(if app.player.is_some() { GREEN } else { MUTED })),
+        Span::styled(
+            if app.player.is_some() { " ON AIR  " } else { " IDLE  " },
+            Style::default().fg(if app.player.is_some() { GREEN } else { MUTED }),
+        ),
+        Span::raw("   "),
+        Span::styled(
+            " [1: LIBRARY] ",
+            if lib_active {
+                Style::default().fg(GREEN).bg(Color::Rgb(20, 45, 38)).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(MUTED)
+            },
+        ),
+        Span::raw(" "),
+        Span::styled(
+            " [2: INTERNET-RADIO] ",
+            if ir_active {
+                Style::default().fg(CYAN).bg(Color::Rgb(15, 35, 45)).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(MUTED)
+            },
+        ),
+    ]);
+
+    let header_line2 = Line::from(vec![
+        Span::styled(
+            " terminal radio receiver for late sessions & deep work",
+            Style::default().fg(MUTED),
+        ),
+    ]);
+
+    let header = Paragraph::new(vec![header_line1, header_line2]).block(
+        Block::default()
+            .borders(Borders::BOTTOM)
+            .border_style(Style::default().fg(Color::Rgb(30, 55, 60))),
+    );
     f.render_widget(header, chunks[0]);
 
-    let now = app.current.and_then(|i| app.stations.get(i));
+    // 2. Now Playing Banner & Audio Waveform
+    let now = app.current_station.as_ref();
     let elapsed = app.elapsed().as_secs();
     let status_text = if let Some(station) = now {
-        format!("  {}   ·   {}   ·   {:02}:{:02}", station.name, station.genre, elapsed / 60, elapsed % 60)
+        let tag = match station.source {
+            StationSource::Preset => "PRESET",
+            StationSource::Custom => "CUSTOM",
+            StationSource::InternetRadio => "WEB-RADIO",
+        };
+        format!(
+            "  [{tag}] {}   ·   {}   ·   {:02}:{:02}",
+            station.name,
+            station.genre,
+            elapsed / 60,
+            elapsed % 60
+        )
     } else if app.paused {
         "  Paused · press Space to resume".to_string()
     } else {
         "  Nothing playing · choose a station and press Enter".to_string()
     };
-    let phase = app.started.map(|started| started.elapsed().as_millis() as f64 / 170.0).unwrap_or(0.0);
+
+    let phase = app
+        .started
+        .map(|started| started.elapsed().as_millis() as f64 / 170.0)
+        .unwrap_or(0.0);
     let wave_width = chunks[1].width.saturating_sub(4) as usize;
     let wave = wave_line(wave_width, phase, app.player.is_some() && !app.paused);
-    let now_widget = Paragraph::new(vec![Line::from(Span::styled(
-        status_text,
-        Style::default().fg(if app.player.is_some() { GREEN } else { MUTED }).bg(PANEL).add_modifier(Modifier::BOLD),
-    )), wave])
-        .style(Style::default().bg(PANEL))
-        .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(if app.player.is_some() { GREEN } else { MUTED })));
+
+    let now_widget = Paragraph::new(vec![
+        Line::from(Span::styled(
+            status_text,
+            Style::default()
+                .fg(if app.player.is_some() { GREEN } else { MUTED })
+                .bg(PANEL)
+                .add_modifier(Modifier::BOLD),
+        )),
+        wave,
+    ])
+    .style(Style::default().bg(PANEL))
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(if app.player.is_some() { GREEN } else { MUTED })),
+    );
     f.render_widget(now_widget, chunks[1]);
 
-    let body = Layout::default().direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(58), Constraint::Percentage(42)]).split(chunks[2]);
+    // 3. Body: Left List & Right Details
+    let body = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
+        .split(chunks[2]);
 
-    let title = if app.show_favorites { " STATIONS // FAVORITES " } else { " STATIONS " };
-    let station_items: Vec<ListItem> = app.filtered.iter().map(|station_idx| {
-        let station = &app.stations[*station_idx];
-        let is_current = app.current == Some(*station_idx);
-        let is_fav = app.config.favorites.contains(&station.name);
-        let prefix = if is_current { "▶ " } else if is_fav { "★ " } else { "  " };
-        let line = Line::from(vec![
-            Span::styled(prefix, Style::default().fg(if is_current { GREEN } else { CYAN })),
-            Span::styled(format!("{:<23}", station.name), Style::default().fg(if is_current { GREEN } else { TEXT }).add_modifier(if is_current { Modifier::BOLD } else { Modifier::empty() })),
-            Span::styled(station.genre.clone(), Style::default().fg(MUTED)),
-        ]);
-        ListItem::new(line)
-    }).collect();
+    match app.view_mode {
+        ViewMode::Library => {
+            let title = if app.show_favorites {
+                " STATIONS // FAVORITES "
+            } else {
+                " STATIONS // LIBRARY "
+            };
 
-    let list_block = Block::default().title(format!("{title} [{}]", app.filtered.len()))
-        .borders(Borders::ALL).border_style(Style::default().fg(CYAN)).style(Style::default().bg(PANEL));
-    let list = List::new(station_items).block(list_block)
-        .highlight_style(Style::default().fg(GREEN).bg(Color::Rgb(20, 40, 35)).add_modifier(Modifier::BOLD))
-        .highlight_symbol("› ");
-    let mut state = ListState::default();
-    if !app.filtered.is_empty() { state.select(Some(app.selected)); }
-    f.render_stateful_widget(list, body[0], &mut state);
+            let station_items: Vec<ListItem> = app
+                .filtered
+                .iter()
+                .map(|&station_idx| {
+                    let station = &app.stations[station_idx];
+                    let is_current = app
+                        .current_station
+                        .as_ref()
+                        .map(|s| &s.name)
+                        == Some(&station.name);
+                    let is_fav = app.config.favorites.contains(&station.name);
 
-    let right = Layout::default().direction(Direction::Vertical)
-        .constraints([Constraint::Length(7), Constraint::Min(5)]).split(body[1]);
-    let selected_station = app.filtered.get(app.selected).and_then(|i| app.stations.get(*i));
-    let details = if let Some(station) = selected_station {
-        vec![
-            Line::from(Span::styled("SELECTED", Style::default().fg(MUTED).add_modifier(Modifier::BOLD))),
-            Line::from(""),
-            Line::from(Span::styled(&station.name, Style::default().fg(GREEN).add_modifier(Modifier::BOLD))),
-            Line::from(Span::styled(&station.description, Style::default().fg(TEXT))),
-            Line::from(""),
-            Line::from(Span::styled(format!("FORMAT  MP3 · 128 KBPS"), Style::default().fg(MUTED))),
-        ]
-    } else {
-        vec![Line::from("No stations match this filter.")]
+                    let prefix = if is_current {
+                        "▶ "
+                    } else if is_fav {
+                        "★ "
+                    } else {
+                        "  "
+                    };
+
+                    let source_tag = match station.source {
+                        StationSource::Preset => "",
+                        StationSource::Custom => "[USER] ",
+                        StationSource::InternetRadio => "[WEB] ",
+                    };
+
+                    let name_display = format!("{:<22}", station.name);
+                    let line = Line::from(vec![
+                        Span::styled(
+                            prefix,
+                            Style::default().fg(if is_current { GREEN } else { CYAN }),
+                        ),
+                        Span::styled(
+                            source_tag,
+                            Style::default().fg(YELLOW).add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled(
+                            name_display,
+                            Style::default()
+                                .fg(if is_current { GREEN } else { TEXT })
+                                .add_modifier(if is_current {
+                                    Modifier::BOLD
+                                } else {
+                                    Modifier::empty()
+                                }),
+                        ),
+                        Span::styled(station.genre.clone(), Style::default().fg(MUTED)),
+                    ]);
+                    ListItem::new(line)
+                })
+                .collect();
+
+            let list_block = Block::default()
+                .title(format!("{title}[{}]", app.filtered.len()))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(CYAN))
+                .style(Style::default().bg(PANEL));
+
+            let list = List::new(station_items)
+                .block(list_block)
+                .highlight_style(
+                    Style::default()
+                        .fg(GREEN)
+                        .bg(Color::Rgb(20, 40, 35))
+                        .add_modifier(Modifier::BOLD),
+                )
+                .highlight_symbol("› ");
+
+            let mut state = ListState::default();
+            if !app.filtered.is_empty() {
+                state.select(Some(app.selected));
+            }
+            f.render_stateful_widget(list, body[0], &mut state);
+
+            // Right column for Library
+            let right = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(8), Constraint::Min(5)])
+                .split(body[1]);
+
+            let selected_station = app
+                .filtered
+                .get(app.selected)
+                .and_then(|&i| app.stations.get(i));
+
+            let details = if let Some(station) = selected_station {
+                let source_label = match station.source {
+                    StationSource::Preset => "PRESET (BUILT-IN)",
+                    StationSource::Custom => "CUSTOM (USER-ADDED · 'd' to delete)",
+                    StationSource::InternetRadio => "INTERNET-RADIO.COM",
+                };
+                vec![
+                    Line::from(Span::styled(
+                        "SELECTED STATION",
+                        Style::default().fg(MUTED).add_modifier(Modifier::BOLD),
+                    )),
+                    Line::from(Span::styled(
+                        &station.name,
+                        Style::default().fg(GREEN).add_modifier(Modifier::BOLD),
+                    )),
+                    Line::from(Span::styled(&station.description, Style::default().fg(TEXT))),
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        format!("GENRE   {}", station.genre),
+                        Style::default().fg(CYAN),
+                    )),
+                    Line::from(Span::styled(
+                        format!("SOURCE  {source_label}"),
+                        Style::default().fg(MUTED),
+                    )),
+                ]
+            } else {
+                vec![Line::from("No stations match this filter.")]
+            };
+
+            f.render_widget(
+                Paragraph::new(details).wrap(Wrap { trim: true }).block(
+                    Block::default()
+                        .title(" STATION INFO ")
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::Rgb(45, 80, 75)))
+                        .style(Style::default().bg(PANEL)),
+                ),
+                right[0],
+            );
+
+            let search_label = if app.input_mode == InputMode::Filter {
+                format!(" FILTER > {}_", app.search)
+            } else if !app.search.is_empty() {
+                format!(" ACTIVE FILTER // {}", app.search)
+            } else {
+                " SEARCH / ACTIVITY".into()
+            };
+
+            let notes = vec![
+                Line::from(Span::styled(
+                    search_label,
+                    Style::default().fg(CYAN).add_modifier(Modifier::BOLD),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "Press 'a' to add your own custom station URL.",
+                    Style::default().fg(TEXT),
+                )),
+                Line::from(Span::styled(
+                    "Press 'i' to search https://www.internet-radio.com/.",
+                    Style::default().fg(CYAN),
+                )),
+                Line::from(Span::styled(
+                    "Press 'd' to delete a custom station.",
+                    Style::default().fg(MUTED),
+                )),
+                Line::from(""),
+                Line::from(Span::styled("STATUS", Style::default().fg(MUTED))),
+                Line::from(Span::styled(
+                    &app.status,
+                    Style::default().fg(if app.status.contains("Could not")
+                        || app.status.contains("ended")
+                        || app.status.contains("failed")
+                    {
+                        RED
+                    } else {
+                        GREEN
+                    }),
+                )),
+            ];
+
+            f.render_widget(
+                Paragraph::new(notes).wrap(Wrap { trim: true }).block(
+                    Block::default()
+                        .title(" ACTIVITY ")
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::Rgb(45, 80, 75)))
+                        .style(Style::default().bg(PANEL)),
+                ),
+                right[1],
+            );
+        }
+
+        ViewMode::InternetRadio => {
+            let spinner_frame = SPINNER[app.spinner_tick % SPINNER.len()];
+            let title = if app.ir_loading {
+                format!(" INTERNET-RADIO.COM // {} SEARCHING... ", spinner_frame)
+            } else if app.ir_query.is_empty() {
+                " INTERNET-RADIO.COM // (Press 'i' to search) ".into()
+            } else {
+                format!(
+                    " INTERNET-RADIO.COM // '{}' [{}] ",
+                    app.ir_query,
+                    app.ir_stations.len()
+                )
+            };
+
+            let station_items: Vec<ListItem> = if app.ir_loading {
+                vec![ListItem::new(Line::from(Span::styled(
+                    format!("  {} Searching internet-radio.com for '{}'...", spinner_frame, app.ir_query),
+                    Style::default().fg(CYAN).add_modifier(Modifier::BOLD),
+                )))]
+            } else if app.ir_stations.is_empty() {
+                vec![
+                    ListItem::new(Line::from("")),
+                    ListItem::new(Line::from(Span::styled(
+                        "  No stations loaded.",
+                        Style::default().fg(MUTED),
+                    ))),
+                    ListItem::new(Line::from(Span::styled(
+                        "  Press 'i' to search internet-radio.com (e.g. ambient, lofi, synthwave, rock)",
+                        Style::default().fg(CYAN),
+                    ))),
+                ]
+            } else {
+                app.ir_stations
+                    .iter()
+                    .enumerate()
+                    .map(|(_, station)| {
+                        let is_current = app
+                            .current_station
+                            .as_ref()
+                            .map(|s| &s.name)
+                            == Some(&station.name);
+                        let is_fav = app.config.favorites.contains(&station.name);
+                        let in_lib = app.stations.iter().any(|s| s.name == station.name);
+
+                        let prefix = if is_current {
+                            "▶ "
+                        } else if is_fav {
+                            "★ "
+                        } else if in_lib {
+                            "✓ "
+                        } else {
+                            "  "
+                        };
+
+                        let name_display = format!("{:<25}", station.name);
+                        let line = Line::from(vec![
+                            Span::styled(
+                                prefix,
+                                Style::default().fg(if is_current { GREEN } else { CYAN }),
+                            ),
+                            Span::styled(
+                                name_display,
+                                Style::default()
+                                    .fg(if is_current { GREEN } else { TEXT })
+                                    .add_modifier(if is_current {
+                                        Modifier::BOLD
+                                    } else {
+                                        Modifier::empty()
+                                    }),
+                        ),
+                        Span::styled(station.genre.clone(), Style::default().fg(MUTED)),
+                    ]);
+                    ListItem::new(line)
+                })
+                .collect()
+            };
+
+            let list_block = Block::default()
+                .title(title)
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(CYAN))
+                .style(Style::default().bg(PANEL));
+
+            let list = List::new(station_items)
+                .block(list_block)
+                .highlight_style(
+                    Style::default()
+                        .fg(GREEN)
+                        .bg(Color::Rgb(20, 40, 35))
+                        .add_modifier(Modifier::BOLD),
+                )
+                .highlight_symbol("› ");
+
+            let mut state = ListState::default();
+            if !app.ir_stations.is_empty() {
+                state.select(Some(app.ir_selected));
+            }
+            f.render_stateful_widget(list, body[0], &mut state);
+
+            // Right column for Internet-Radio
+            let right = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(9), Constraint::Min(5)])
+                .split(body[1]);
+
+            let selected_station = app.ir_stations.get(app.ir_selected);
+
+            let details = if let Some(station) = selected_station {
+                let in_lib = app.stations.iter().any(|s| s.name == station.name);
+                let lib_hint = if in_lib {
+                    "ALREADY SAVED IN YOUR LIBRARY"
+                } else {
+                    "Press 'a' or 's' to save to your Library"
+                };
+
+                vec![
+                    Line::from(Span::styled(
+                        "INTERNET-RADIO.COM STATION",
+                        Style::default().fg(MUTED).add_modifier(Modifier::BOLD),
+                    )),
+                    Line::from(Span::styled(
+                        &station.name,
+                        Style::default().fg(GREEN).add_modifier(Modifier::BOLD),
+                    )),
+                    Line::from(Span::styled(&station.description, Style::default().fg(TEXT))),
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        format!("GENRES   {}", station.genre),
+                        Style::default().fg(CYAN),
+                    )),
+                    Line::from(Span::styled(
+                        format!("SAVE     {lib_hint}"),
+                        Style::default().fg(if in_lib { GREEN } else { YELLOW }),
+                    )),
+                ]
+            } else {
+                vec![
+                    Line::from("No station selected."),
+                    Line::from("Press 'i' to search internet-radio.com"),
+                ]
+            };
+
+            f.render_widget(
+                Paragraph::new(details).wrap(Wrap { trim: true }).block(
+                    Block::default()
+                        .title(" STATION DETAILS ")
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::Rgb(45, 80, 75)))
+                        .style(Style::default().bg(PANEL)),
+                ),
+                right[0],
+            );
+
+            let notes = vec![
+                Line::from(Span::styled(
+                    " INTERNET-RADIO BROWSER",
+                    Style::default().fg(CYAN).add_modifier(Modifier::BOLD),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "Press 'Enter' to tune in directly via mpv.",
+                    Style::default().fg(TEXT),
+                )),
+                Line::from(Span::styled(
+                    "Press 'a' to save this station to your local library.",
+                    Style::default().fg(GREEN),
+                )),
+                Line::from(Span::styled(
+                    "Press 'i' to run a new search on internet-radio.com.",
+                    Style::default().fg(CYAN),
+                )),
+                Line::from(Span::styled(
+                    "Press 'Tab' to switch back to your Library.",
+                    Style::default().fg(MUTED),
+                )),
+                Line::from(""),
+                Line::from(Span::styled("STATUS", Style::default().fg(MUTED))),
+                Line::from(Span::styled(
+                    &app.status,
+                    Style::default().fg(if app.status.contains("Could not")
+                        || app.status.contains("ended")
+                        || app.status.contains("failed")
+                    {
+                        RED
+                    } else {
+                        GREEN
+                    }),
+                )),
+            ];
+
+            f.render_widget(
+                Paragraph::new(notes).wrap(Wrap { trim: true }).block(
+                    Block::default()
+                        .title(" ACTIVITY ")
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::Rgb(45, 80, 75)))
+                        .style(Style::default().bg(PANEL)),
+                ),
+                right[1],
+            );
+        }
+    }
+
+    // 4. Shortcut Keys Bar
+    let keys_spans = match app.view_mode {
+        ViewMode::Library => vec![
+            Span::styled(" ↑/↓ ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
+            Span::styled("navigate  ", Style::default().fg(MUTED)),
+            Span::styled("ENTER ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
+            Span::styled("tune  ", Style::default().fg(MUTED)),
+            Span::styled("SPACE ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
+            Span::styled("pause  ", Style::default().fg(MUTED)),
+            Span::styled("i ", Style::default().fg(CYAN).add_modifier(Modifier::BOLD)),
+            Span::styled("internet-radio  ", Style::default().fg(MUTED)),
+            Span::styled("a ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
+            Span::styled("add station  ", Style::default().fg(MUTED)),
+            Span::styled("/ ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
+            Span::styled("filter  ", Style::default().fg(MUTED)),
+            Span::styled("s ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
+            Span::styled("star  ", Style::default().fg(MUTED)),
+            Span::styled("Tab ", Style::default().fg(CYAN).add_modifier(Modifier::BOLD)),
+            Span::styled("views  ", Style::default().fg(MUTED)),
+            Span::styled("? ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
+            Span::styled("help  ", Style::default().fg(MUTED)),
+            Span::styled("q ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
+            Span::styled("quit", Style::default().fg(MUTED)),
+        ],
+        ViewMode::InternetRadio => vec![
+            Span::styled(" ↑/↓ ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
+            Span::styled("navigate  ", Style::default().fg(MUTED)),
+            Span::styled("ENTER ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
+            Span::styled("tune  ", Style::default().fg(MUTED)),
+            Span::styled("SPACE ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
+            Span::styled("pause  ", Style::default().fg(MUTED)),
+            Span::styled("a ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
+            Span::styled("add to library  ", Style::default().fg(MUTED)),
+            Span::styled("i ", Style::default().fg(CYAN).add_modifier(Modifier::BOLD)),
+            Span::styled("new search  ", Style::default().fg(MUTED)),
+            Span::styled("s ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
+            Span::styled("star  ", Style::default().fg(MUTED)),
+            Span::styled("Tab ", Style::default().fg(CYAN).add_modifier(Modifier::BOLD)),
+            Span::styled("library  ", Style::default().fg(MUTED)),
+            Span::styled("? ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
+            Span::styled("help  ", Style::default().fg(MUTED)),
+            Span::styled("q ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
+            Span::styled("quit", Style::default().fg(MUTED)),
+        ],
     };
-    f.render_widget(Paragraph::new(details).wrap(Wrap { trim: true })
-        .block(Block::default().title(" STATION INFO ").borders(Borders::ALL).border_style(Style::default().fg(Color::Rgb(45, 80, 75))).style(Style::default().bg(PANEL))), right[0]);
 
-    let search_label = if app.search_mode { format!(" SEARCH > {}_", app.search) } else if !app.search.is_empty() { format!(" FILTER // {}", app.search) } else { " SEARCH / NOTES".into() };
-    let notes = vec![
-        Line::from(Span::styled(search_label, Style::default().fg(CYAN).add_modifier(Modifier::BOLD))),
-        Line::from(""),
-        Line::from(Span::styled("A good soundtrack for getting things done.", Style::default().fg(TEXT))),
-        Line::from(Span::styled("Audio streams come from SomaFM.", Style::default().fg(MUTED))),
-        Line::from(""),
-        Line::from(Span::styled("STATUS", Style::default().fg(MUTED))),
-        Line::from(Span::styled(&app.status, Style::default().fg(if app.status.contains("Could not") || app.status.contains("ended") { RED } else { GREEN }))),
-    ];
-    f.render_widget(Paragraph::new(notes).wrap(Wrap { trim: true })
-        .block(Block::default().title(" ACTIVITY ").borders(Borders::ALL).border_style(Style::default().fg(Color::Rgb(45, 80, 75))).style(Style::default().bg(PANEL))), right[1]);
-
-    let keys = Paragraph::new(Line::from(vec![
-        Span::styled(" ↑/↓ ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)), Span::styled("navigate  ", Style::default().fg(MUTED)),
-        Span::styled("ENTER ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)), Span::styled("tune  ", Style::default().fg(MUTED)),
-        Span::styled("SPACE ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)), Span::styled("pause  ", Style::default().fg(MUTED)),
-        Span::styled("S ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)), Span::styled("star  ", Style::default().fg(MUTED)),
-        Span::styled("/ ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)), Span::styled("search  ", Style::default().fg(MUTED)),
-        Span::styled("F ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)), Span::styled("favorites  ", Style::default().fg(MUTED)),
-        Span::styled("Q ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)), Span::styled("quit", Style::default().fg(MUTED)),
-    ])).alignment(Alignment::Center).block(Block::default().borders(Borders::TOP).border_style(Style::default().fg(Color::Rgb(30, 55, 60))));
+    let keys = Paragraph::new(Line::from(keys_spans)).alignment(Alignment::Center).block(
+        Block::default()
+            .borders(Borders::TOP)
+            .border_style(Style::default().fg(Color::Rgb(30, 55, 60))),
+    );
     f.render_widget(keys, chunks[3]);
 
-    let footer = Paragraph::new(Span::styled("HAK.FM  ·  SomaFM streams", Style::default().fg(Color::Rgb(50, 90, 80))))
-        .alignment(Alignment::Center);
-    f.render_widget(footer, chunks[4]);
+    // 5. Footer with Clickable OSC 8 Hyperlink for Delta Fsociety
+    draw_footer(f, chunks[4]);
 
-    if app.show_help {
-        let popup = centered_rect(60, 65, area);
-        f.render_widget(Clear, popup);
-        f.render_widget(Block::default().title(" HELP ").borders(Borders::ALL).border_style(Style::default().fg(GREEN)).style(Style::default().bg(PANEL)), popup);
-        let help = Paragraph::new(vec![
-            Line::from(Span::styled("Keyboard shortcuts", Style::default().fg(GREEN).add_modifier(Modifier::BOLD))),
-            Line::from(""),
-            Line::from("↑ / k       Move selection up"),
-            Line::from("↓ / j       Move selection down"),
-            Line::from("Enter       Play selected station"),
-            Line::from("Space       Stop / resume selected station"),
-            Line::from("← / h       Previous station and play"),
-            Line::from("→ / l       Next station and play"),
-            Line::from("/           Search by name, genre, description"),
-            Line::from("s           Toggle favorite"),
-            Line::from("f           Show / hide favorites"),
-            Line::from("x           Stop playback"),
-            Line::from("r           Reset filters"),
-            Line::from("?           Close this manual"),
-            Line::from("q           Quit and stop playback"),
-            Line::from(""),
-            Line::from(Span::styled("Requires mpv installed and an internet connection.", Style::default().fg(MUTED))),
-        ]).block(Block::default().padding(ratatui::widgets::Padding::new(2, 2, 1, 1))).wrap(Wrap { trim: false });
-        f.render_widget(help, popup);
+    // 6. Overlaid Modals
+    if app.input_mode == InputMode::InternetRadioSearch {
+        draw_ir_search_modal(f, &app.ir_search_input, area);
+    } else if app.input_mode == InputMode::AddStation {
+        draw_add_station_modal(f, &app.add_form, area);
+    } else if app.show_help {
+        draw_help_modal(f, area);
     }
+}
+
+// ---------------------------------------------------------
+// Modal Dialogs & Footer Hyperlink
+// ---------------------------------------------------------
+
+fn draw_footer(f: &mut Frame, area: Rect) {
+    if area.height == 0 || area.width == 0 {
+        return;
+    }
+
+    let sub = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Length(1)])
+        .split(area);
+
+    // Line 1: Program info
+    let line1 = Paragraph::new(Span::styled(
+        "HAK.FM  ·  SomaFM & Internet-Radio Receiver",
+        Style::default().fg(Color::Rgb(50, 90, 80)),
+    ))
+    .alignment(Alignment::Center);
+    f.render_widget(line1, sub[0]);
+
+    // Line 2: "Created by " + Clickable OSC 8 Hyperlink "Delta Fsociety"
+    if sub.len() > 1 {
+        let prefix = "Created by ";
+        let total_len = prefix.len() + AUTHOR_NAME.len();
+
+        let x_start = sub[1].x + sub[1].width.saturating_sub(total_len as u16) / 2;
+        let y = sub[1].y;
+
+        let buf = f.buffer_mut();
+
+        // Render prefix
+        for (i, ch) in prefix.chars().enumerate() {
+            let x = x_start + i as u16;
+            if x < sub[1].right() {
+                let cell = &mut buf[(x, y)];
+                cell.set_char(ch);
+                cell.set_fg(Color::Rgb(75, 115, 105));
+            }
+        }
+
+        // Render OSC 8 hyperlinked Delta Fsociety
+        let link_start_x = x_start + prefix.len() as u16;
+        if link_start_x < sub[1].right() {
+            let sym = format!("\x1B]8;;{}\x07{}\x1B]8;;\x07", AUTHOR_URL, AUTHOR_NAME);
+            let cell = &mut buf[(link_start_x, y)];
+            cell.set_symbol(&sym);
+            cell.set_style(
+                Style::default()
+                    .fg(CYAN)
+                    .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+            );
+        }
+    }
+}
+
+fn draw_ir_search_modal(f: &mut Frame, query: &str, area: Rect) {
+    let popup = centered_rect(60, 28, area);
+    f.render_widget(Clear, popup);
+
+    let block = Block::default()
+        .title(" SEARCH HTTPS://WWW.INTERNET-RADIO.COM/ ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(CYAN))
+        .style(Style::default().bg(PANEL));
+    f.render_widget(block, popup);
+
+    let inner = Layout::default()
+        .direction(Direction::Vertical)
+        .margin(2)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(3),
+            Constraint::Length(2),
+        ])
+        .split(popup);
+
+    let prompt = Paragraph::new(Span::styled(
+        "Enter station genre, name, or keywords (e.g. ambient, synthwave, jazz, lofi):",
+        Style::default().fg(TEXT),
+    ));
+    f.render_widget(prompt, inner[0]);
+
+    let input_box = Paragraph::new(format!(" {query}_"))
+        .style(Style::default().fg(GREEN).add_modifier(Modifier::BOLD))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(CYAN))
+                .style(Style::default().bg(Color::Rgb(10, 16, 22))),
+        );
+    f.render_widget(input_box, inner[1]);
+
+    let hints = Paragraph::new(vec![Line::from(vec![
+        Span::styled(" [ENTER] ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
+        Span::styled("Search   ", Style::default().fg(MUTED)),
+        Span::styled(" [ESC] ", Style::default().fg(RED).add_modifier(Modifier::BOLD)),
+        Span::styled("Cancel", Style::default().fg(MUTED)),
+    ])]);
+    f.render_widget(hints, inner[2]);
+}
+
+fn draw_add_station_modal(f: &mut Frame, form: &AddStationForm, area: Rect) {
+    let popup = centered_rect(66, 55, area);
+    f.render_widget(Clear, popup);
+
+    let block = Block::default()
+        .title(" ADD CUSTOM RADIO STATION ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(GREEN))
+        .style(Style::default().bg(PANEL));
+    f.render_widget(block, popup);
+
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .margin(2)
+        .constraints([
+            Constraint::Length(3), // Name
+            Constraint::Length(3), // URL
+            Constraint::Length(3), // Genre
+            Constraint::Length(3), // Description
+            Constraint::Length(2), // Error or info
+            Constraint::Length(1), // Key hints
+        ])
+        .split(popup);
+
+    // Field 0: Name
+    let f0_active = form.focused_field == 0;
+    let p0 = Paragraph::new(format!(
+        " {}{}",
+        form.name,
+        if f0_active { "_" } else { "" }
+    ))
+    .block(
+        Block::default()
+            .title(" Station Name * ")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(if f0_active { GREEN } else { MUTED }))
+            .style(Style::default().bg(Color::Rgb(10, 16, 22))),
+    );
+    f.render_widget(p0, rows[0]);
+
+    // Field 1: Stream URL
+    let f1_active = form.focused_field == 1;
+    let p1 = Paragraph::new(format!(
+        " {}{}",
+        form.url,
+        if f1_active { "_" } else { "" }
+    ))
+    .block(
+        Block::default()
+            .title(" Stream URL (.mp3 / .pls / .m3u / icecast / shoutcast) * ")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(if f1_active { GREEN } else { MUTED }))
+            .style(Style::default().bg(Color::Rgb(10, 16, 22))),
+    );
+    f.render_widget(p1, rows[1]);
+
+    // Field 2: Genre
+    let f2_active = form.focused_field == 2;
+    let p2 = Paragraph::new(format!(
+        " {}{}",
+        form.genre,
+        if f2_active { "_" } else { "" }
+    ))
+    .block(
+        Block::default()
+            .title(" Genre (optional, default: CUSTOM) ")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(if f2_active { GREEN } else { MUTED }))
+            .style(Style::default().bg(Color::Rgb(10, 16, 22))),
+    );
+    f.render_widget(p2, rows[2]);
+
+    // Field 3: Description
+    let f3_active = form.focused_field == 3;
+    let p3 = Paragraph::new(format!(
+        " {}{}",
+        form.description,
+        if f3_active { "_" } else { "" }
+    ))
+    .block(
+        Block::default()
+            .title(" Description (optional) ")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(if f3_active { GREEN } else { MUTED }))
+            .style(Style::default().bg(Color::Rgb(10, 16, 22))),
+    );
+    f.render_widget(p3, rows[3]);
+
+    // Error or guide message
+    let msg = if let Some(err) = &form.error_msg {
+        Line::from(Span::styled(
+            format!(" ⚠ {err}"),
+            Style::default().fg(RED).add_modifier(Modifier::BOLD),
+        ))
+    } else {
+        Line::from(Span::styled(
+            " Station will be saved locally to ~/.config/hakfm/config.json",
+            Style::default().fg(MUTED),
+        ))
+    };
+    f.render_widget(Paragraph::new(msg), rows[4]);
+
+    // Key hints
+    let hints = Line::from(vec![
+        Span::styled(" [Tab/↓] ", Style::default().fg(CYAN).add_modifier(Modifier::BOLD)),
+        Span::styled("Next field  ", Style::default().fg(MUTED)),
+        Span::styled(" [Enter] ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
+        Span::styled("Save Station  ", Style::default().fg(MUTED)),
+        Span::styled(" [Esc] ", Style::default().fg(RED).add_modifier(Modifier::BOLD)),
+        Span::styled("Cancel", Style::default().fg(MUTED)),
+    ]);
+    f.render_widget(Paragraph::new(hints), rows[5]);
+}
+
+fn draw_help_modal(f: &mut Frame, area: Rect) {
+    let popup = centered_rect(65, 75, area);
+    f.render_widget(Clear, popup);
+    f.render_widget(
+        Block::default()
+            .title(" HELP & CONTROLS ")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(GREEN))
+            .style(Style::default().bg(PANEL)),
+        popup,
+    );
+
+    let help = Paragraph::new(vec![
+        Line::from(Span::styled(
+            "Keyboard Shortcuts",
+            Style::default().fg(GREEN).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from("↑ / k       Move selection up"),
+        Line::from("↓ / j       Move selection down"),
+        Line::from("Enter       Play selected station"),
+        Line::from("Space       Stop / resume selected station"),
+        Line::from("← / h       Previous station and play"),
+        Line::from("→ / l       Next station and play"),
+        Line::from("Tab         Switch views: [1] Library  <->  [2] Internet-Radio"),
+        Line::from("i           Search internet-radio.com in TUI"),
+        Line::from("a           Add custom station URL (or add IR station to library)"),
+        Line::from("d / Del     Delete selected custom station"),
+        Line::from("/           Filter stations in library"),
+        Line::from("s           Toggle favorite (starred)"),
+        Line::from("f           Show / hide favorites only"),
+        Line::from("x           Stop playback"),
+        Line::from("r           Reset search filters"),
+        Line::from("?           Close this manual"),
+        Line::from("q           Quit application"),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Developer & Contact",
+            Style::default().fg(CYAN).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(format!("  Author:  {AUTHOR_NAME}")),
+        Line::from(format!("  Contact: {AUTHOR_URL}")),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Requires mpv installed and an internet connection.",
+            Style::default().fg(MUTED),
+        )),
+    ])
+    .block(Block::default().padding(ratatui::widgets::Padding::new(2, 2, 1, 1)))
+    .wrap(Wrap { trim: false });
+    f.render_widget(help, popup);
 }
 
 fn wave_line(width: usize, phase: f64, active: bool) -> Line<'static> {
@@ -458,7 +1896,8 @@ fn wave_line(width: usize, phase: f64, active: bool) -> Line<'static> {
     for i in 0..width {
         let x = i as f64;
         let t = phase - x * 0.24;
-        let wave = (t.sin() * 0.52 + (t * 0.47 + 1.2).sin() * 0.31 + (t * 0.19).sin() * 0.17).abs();
+        let wave =
+            (t.sin() * 0.52 + (t * 0.47 + 1.2).sin() * 0.31 + (t * 0.19).sin() * 0.17).abs();
         let height = ((wave * 7.0).round() as usize).min(BARS.len() - 1);
         let color = if height >= 5 { GREEN } else { CYAN };
         spans.push(Span::styled(BARS[height], Style::default().fg(color)));
@@ -467,10 +1906,20 @@ fn wave_line(width: usize, phase: f64, active: bool) -> Line<'static> {
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
-    let vertical = Layout::default().direction(Direction::Vertical)
-        .constraints([Constraint::Percentage((100 - percent_y) / 2), Constraint::Percentage(percent_y), Constraint::Percentage((100 - percent_y) / 2)])
+    let vertical = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
         .split(r);
-    Layout::default().direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage((100 - percent_x) / 2), Constraint::Percentage(percent_x), Constraint::Percentage((100 - percent_x) / 2)])
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
         .split(vertical[1])[1]
 }

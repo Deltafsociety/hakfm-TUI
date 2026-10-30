@@ -12,12 +12,15 @@ A Rust terminal radio receiver for hacker focus, ambient work sessions, and late
 
 ## Features
 
-- 18 curated radio presets including DEF CON Radio, Drone Zone, Groove Salad, and Deep Space One
-- Keyboard navigation and station switching
-- Search by station name, genre, or description
-- Favorites saved in `~/.config/hakfm/config.json`
-- Playback status, elapsed session timer, and connection-ended detection
-- No browser required
+- Curated radio presets including DEF CON Radio, MansionNET Radio, Drone Zone, Groove Salad, and Deep Space One
+- **In-TUI Live Search on [internet-radio.com](https://www.internet-radio.com/)**: Browse thousands of stations across any genre directly inside the terminal
+- **Custom Station Manager**: Add your own radio streams (`.mp3`, `.pls`, `.m3u`, Icecast, Shoutcast) with name, genre, and description
+- Persistent custom stations and favorites saved in `~/.config/hakfm/config.json`
+- Dual view modes: Library view and Internet-Radio view with quick tab switching
+- Keyboard navigation (both arrow keys and Vim-style `hjkl`)
+- Playback status, animated waveform, elapsed session timer, and connection-ended detection
+- Hyperlinked author credit to [Delta Fsociety](https://zist.digital/delta/contact-me/) via terminal OSC 8 hyperlinks
+- No browser required; lightweight audio playback powered by `mpv`
 
 
 # You have two ways to get this working
@@ -102,8 +105,9 @@ in order to launch the application
 
 - Star this project!
 - feel free to open issues
-- enjoy your deep focous sessions
+- enjoy your deep focus sessions
 - visit my [Open Focus](https://github.com/Deltafsociety/open-focus) Project :D
+- Contact me: [Delta Fsociety](https://zist.digital/delta/contact-me/)
 
 
 ## Controls
@@ -114,14 +118,18 @@ in order to launch the application
 |---|---|
 | `↑` / `k`, `↓` / `j` | Navigate stations |
 | `Enter` | Play selected station |
-| `Space` | Stop/resume the selected station |
+| `Space` | Stop/resume playback |
 | `←` / `h`, `→` / `l` | Tune previous/next station |
-| `/` | Search |
-| `s` | Add/remove favorite |
+| `Tab` / `1` / `2` | Switch views (Library <-> Internet-Radio.com) |
+| `i` | Search [internet-radio.com](https://www.internet-radio.com/) in TUI |
+| `a` | Add custom station URL (or save Internet-Radio station to library) |
+| `d` / `Delete` | Delete custom station from library |
+| `/` | Filter stations in library |
+| `s` | Star / favorite station |
 | `f` | Show favorites only |
 | `x` | Stop playback |
 | `r` | Reset filters |
-| `?` | Help |
+| `?` | Help & keyboard shortcuts |
 | `q` | Quit |
 
 ## Notes
