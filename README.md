@@ -4,7 +4,7 @@ A Rust terminal radio receiver for hacker focus, ambient work sessions, and late
 
 > This is an independent client, not an official HAK.FM project. It currently uses direct SomaFM MP3 streams for its station presets. It does not scrape or depend on HAK.FM's website.
 
-![screenshot of the project](screenshots/screenshot2.png)
+![screenshot of the project](screenshots/screenshot1.png)
 ![screenshot of the project](screenshots/screenshot2.png)
 
 
@@ -24,27 +24,33 @@ A Rust terminal radio receiver for hacker focus, ambient work sessions, and late
 - No browser required; lightweight audio playback powered by `mpv`
 
 
-# You have two ways to get this working
+# Installation
 
+### Quick One-Liner (Linux & macOS)
+```bash
+curl -fsSL https://raw.githubusercontent.com/Deltafsociety/hakfm-TUI/main/install.sh | bash
+```
+> **Note:** Requires `mpv` for audio streaming (`sudo pacman -S mpv`, `sudo apt install mpv`, or `brew install mpv`).
 
-## Easiest method : Download the pre-built binary (NOT RECOMMENDED)
-https://github.com/Deltafsociety/hakfm-TUI/releases/download/v1.0.0.0/hakfm
+---
 
-the open a terminal and navigate where the downloaded binary is
-and run :
+### Alternative: Download Pre-built Binary
+Download the binary from [GitHub Releases](https://github.com/Deltafsociety/hakfm-TUI/releases/latest), then make it executable:
 ```bash
 chmod +x hakfm
-```
-
-and then 
-
-```bash
 ./hakfm
 ```
 
+---
 
-## OR Build from source ( RECOMMENDED like all champs do :D)
-> Follow the below steps:
+### Alternative: Install via Cargo
+```bash
+cargo install --git https://github.com/Deltafsociety/hakfm-TUI.git
+```
+
+---
+
+### Build From Source
 
 
 ## Step 1
