@@ -3,24 +3,31 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>HAK.FM — Terminal Radio</title>
-  <meta name="description" content="A lightweight Rust terminal radio receiver for deep work and late sessions.">
+  <title>hakfm — Terminal Radio Receiver | Ultra-Lean Rust TUI</title>
+  <meta name="description" content="A lightweight, hand-crafted terminal radio receiver in Rust. Uses only ~15MB of tested RAM for curated hacker streams, live web search, and real-time audio visualizers.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   
   <style>
     :root {
-      --bg: #0b0e14;
-      --card-bg: #111620;
-      --border: #1b2333;
-      --border-hover: #2d3b55;
+      --bg: #090c12;
+      --bg-surface: #0e131d;
+      --bg-surface-elevated: #141b28;
+      --border: #1a2334;
+      --border-subtle: #141b29;
+      --border-hover: #2a374f;
       --text: #e6edf3;
-      --text-muted: #8b949e;
-      --green: #00ff9d;
-      --cyan: #38bdf8;
+      --text-muted: #8b97a8;
+      --text-dim: #546074;
+      --accent: #38bdf8;
+      --accent-glow: rgba(56, 189, 248, 0.25);
+      --purple: #a78bfa;
+      --red: #f87171;
+      --amber: #fbbf24;
+      --teal: #2dd4bf;
       --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      --font-mono: 'Fira Code', monospace;
+      --font-mono: 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     }
 
     * {
@@ -29,53 +36,147 @@
       padding: 0;
     }
 
+    html {
+      scroll-behavior: smooth;
+    }
+
     body {
       background-color: var(--bg);
       color: var(--text);
       font-family: var(--font-sans);
       line-height: 1.6;
       -webkit-font-smoothing: antialiased;
-      padding: 0 20px;
+      overflow-x: hidden;
+      position: relative;
+    }
+
+    /* Ambient Lighting - Deep, diffused, atmospheric */
+    .ambient-glow-layer {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      overflow: hidden;
+      z-index: 0;
+    }
+
+    .ambient-light {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(140px);
+      opacity: 0.12;
+      animation: floatAmbient 24s ease-in-out infinite alternate;
+      will-change: transform;
+    }
+
+    .ambient-light-1 {
+      width: 700px;
+      height: 700px;
+      background: radial-gradient(circle, #38bdf8 0%, rgba(56, 189, 248, 0) 70%);
+      top: -200px;
+      left: 20%;
+    }
+
+    .ambient-light-2 {
+      width: 600px;
+      height: 600px;
+      background: radial-gradient(circle, #818cf8 0%, rgba(129, 140, 248, 0) 70%);
+      top: 40%;
+      right: -150px;
+      animation-duration: 30s;
+      animation-delay: -6s;
+    }
+
+    .ambient-light-3 {
+      width: 500px;
+      height: 500px;
+      background: radial-gradient(circle, #2dd4bf 0%, rgba(45, 212, 191, 0) 70%);
+      bottom: 10%;
+      left: -100px;
+      animation-duration: 26s;
+      animation-delay: -12s;
+    }
+
+    @keyframes floatAmbient {
+      0% { transform: translate(0, 0) scale(1); }
+      50% { transform: translate(30px, 20px) scale(1.08); }
+      100% { transform: translate(-20px, -15px) scale(0.96); }
+    }
+
+    /* Subtle Technical Grid Texture */
+    .grid-texture {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      background-image: 
+        linear-gradient(to right, rgba(255, 255, 255, 0.012) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 255, 255, 0.012) 1px, transparent 1px);
+      background-size: 48px 48px;
+      mask-image: radial-gradient(circle at 50% 25%, black 40%, transparent 85%);
+      -webkit-mask-image: radial-gradient(circle at 50% 25%, black 40%, transparent 85%);
+      pointer-events: none;
+      z-index: 1;
     }
 
     .container {
-      max-width: 820px;
+      position: relative;
+      z-index: 2;
+      max-width: 920px;
       margin: 0 auto;
+      padding: 0 24px;
     }
 
     /* Header */
     header {
-      padding: 32px 0;
+      padding: 28px 0;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      border-bottom: 1px solid var(--border);
+      border-bottom: 1px solid var(--border-subtle);
     }
 
     .brand {
       font-family: var(--font-mono);
-      font-weight: 700;
-      font-size: 1.15rem;
+      font-weight: 600;
+      font-size: 1.12rem;
       color: var(--text);
       text-decoration: none;
       display: flex;
       align-items: center;
       gap: 10px;
+      letter-spacing: -0.4px;
     }
 
-    .brand-dot {
+    .brand-status-dot {
       width: 8px;
       height: 8px;
       border-radius: 50%;
-      background: var(--green);
-      box-shadow: 0 0 8px var(--green);
+      background: var(--teal);
+      box-shadow: 0 0 10px var(--teal);
+    }
+
+    .brand-badge {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border);
+      padding: 2px 7px;
+      border-radius: 6px;
+      margin-left: 2px;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 22px;
     }
 
     .nav-links a {
       color: var(--text-muted);
       text-decoration: none;
-      font-size: 0.9rem;
-      margin-left: 20px;
+      font-size: 0.88rem;
+      font-weight: 500;
       transition: color 0.15s ease;
     }
 
@@ -83,63 +184,113 @@
       color: var(--text);
     }
 
-    /* Hero */
+    /* Hero Section */
     .hero {
-      padding: 56px 0 40px;
+      padding: 56px 0 36px;
       text-align: center;
     }
 
+    .hero-eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(20, 27, 40, 0.8);
+      border: 1px solid var(--border);
+      padding: 5px 14px;
+      border-radius: 20px;
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      margin-bottom: 22px;
+      backdrop-filter: blur(8px);
+    }
+
+    .hero-eyebrow-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 6px var(--accent);
+    }
+
     h1 {
-      font-size: clamp(2rem, 4.5vw, 2.8rem);
+      font-size: clamp(2.1rem, 4.8vw, 3.2rem);
       font-weight: 700;
-      letter-spacing: -0.8px;
-      line-height: 1.2;
-      margin-bottom: 16px;
+      letter-spacing: -1.2px;
+      line-height: 1.18;
+      margin-bottom: 18px;
+      color: #ffffff;
+    }
+
+    .hero-highlight {
+      color: var(--text);
+      font-weight: 700;
+      display: inline-block;
+      position: relative;
+    }
+
+    .hero-highlight::after {
+      content: '';
+      position: absolute;
+      bottom: 2px;
+      left: 0;
+      width: 100%;
+      height: 2px;
+      background: linear-gradient(90deg, rgba(56, 189, 248, 0.7), transparent);
+      border-radius: 2px;
     }
 
     .hero-subtitle {
       color: var(--text-muted);
-      font-size: 1.1rem;
-      max-width: 580px;
-      margin: 0 auto 36px;
+      font-size: clamp(1rem, 1.8vw, 1.15rem);
+      max-width: 640px;
+      margin: 0 auto 32px;
+      line-height: 1.6;
     }
 
-    /* Installer Box */
+    /* Install Command Box */
     .install-box {
-      background: var(--card-bg);
+      background: var(--bg-surface);
       border: 1px solid var(--border);
       border-radius: 10px;
-      padding: 14px 18px;
+      padding: 12px 18px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 14px;
-      max-width: 680px;
-      margin: 0 auto 14px;
-      transition: border-color 0.2s ease;
+      gap: 16px;
+      max-width: 640px;
+      margin: 0 auto 12px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
     }
 
     .install-box:hover {
       border-color: var(--border-hover);
+      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
     }
 
     .install-cmd {
       font-family: var(--font-mono);
       font-size: 0.88rem;
-      color: var(--green);
+      color: var(--text);
       overflow-x: auto;
       white-space: nowrap;
       text-align: left;
+      scrollbar-width: none;
+    }
+
+    .install-cmd::-webkit-scrollbar {
+      display: none;
     }
 
     .prompt {
-      color: var(--text-muted);
+      color: var(--text-dim);
       user-select: none;
-      margin-right: 8px;
+      margin-right: 10px;
     }
 
     .copy-btn {
-      background: #171f2d;
+      background: var(--bg-surface-elevated);
       border: 1px solid var(--border);
       color: var(--text);
       font-family: var(--font-mono);
@@ -147,137 +298,672 @@
       padding: 7px 14px;
       border-radius: 6px;
       cursor: pointer;
-      display: flex;
+      display: inline-flex;
       align-items: center;
-      gap: 6px;
+      gap: 7px;
       flex-shrink: 0;
       transition: all 0.15s ease;
     }
 
     .copy-btn:hover {
-      background: #1f2b3e;
-      border-color: var(--text-muted);
+      background: #1c2537;
+      border-color: var(--border-hover);
+      color: #ffffff;
     }
 
     .copy-btn.copied {
-      background: var(--green);
-      color: #0b0e14;
-      border-color: var(--green);
-      font-weight: 600;
+      background: #1b2e2b;
+      border-color: var(--teal);
+      color: var(--teal);
+    }
+
+    .copy-icon {
+      width: 13px;
+      height: 13px;
+      fill: currentColor;
     }
 
     .install-note {
       font-size: 0.82rem;
-      color: var(--text-muted);
+      color: var(--text-dim);
       margin-bottom: 48px;
     }
 
-    /* Screenshot */
+    /* Screenshot Showcase */
+    .showcase-section {
+      margin-bottom: 72px;
+    }
+
+    .tabs-bar {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+
+    .tab-btn {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      padding: 8px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.15s ease;
+    }
+
+    .tab-btn:hover {
+      color: var(--text);
+      border-color: var(--border-hover);
+    }
+
+    .tab-btn.active {
+      color: #ffffff;
+      background: var(--bg-surface-elevated);
+      border-color: var(--accent);
+      box-shadow: 0 0 16px rgba(56, 189, 248, 0.15);
+    }
+
+    .tab-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--text-dim);
+      transition: background 0.15s ease;
+    }
+
+    .tab-btn.active .tab-dot {
+      background: var(--accent);
+    }
+
+    /* Terminal Frame with Diffused Ambient Glow */
+    .screenshot-container {
+      position: relative;
+    }
+
+    .screenshot-glow {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 90%;
+      height: 80%;
+      border-radius: 20px;
+      background: radial-gradient(circle, rgba(56, 189, 248, 0.14) 0%, rgba(129, 140, 248, 0.06) 50%, transparent 80%);
+      filter: blur(60px);
+      z-index: -1;
+      pointer-events: none;
+      transition: background 0.4s ease;
+    }
+
     .screenshot-wrapper {
-      margin: 0 auto 56px;
-      background: var(--card-bg);
+      background: var(--bg-surface);
       border: 1px solid var(--border);
       border-radius: 12px;
       overflow: hidden;
-      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.4);
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.03);
     }
 
     .window-bar {
-      padding: 10px 14px;
-      background: #0d1118;
+      padding: 11px 16px;
+      background: #080b11;
       border-bottom: 1px solid var(--border);
       display: flex;
-      gap: 6px;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .window-dots {
+      display: flex;
+      gap: 7px;
     }
 
     .dot {
       width: 10px;
       height: 10px;
       border-radius: 50%;
-      background: #252e3d;
+    }
+
+    .dot-close { background: #e0524c; }
+    .dot-min { background: #e5a93c; }
+    .dot-max { background: #3cb853; }
+
+    .window-title {
+      font-family: var(--font-mono);
+      font-size: 0.76rem;
+      color: var(--text-muted);
+    }
+
+    .window-meta {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      background: rgba(255, 255, 255, 0.03);
+      padding: 2px 8px;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+    }
+
+    .screenshot-viewport {
+      position: relative;
+      aspect-ratio: 1001 / 656;
+      background: #000000;
+      overflow: hidden;
     }
 
     .screenshot-img {
+      position: absolute;
+      inset: 0;
       width: 100%;
-      height: auto;
+      height: 100%;
+      object-fit: cover;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+      pointer-events: none;
+    }
+
+    .screenshot-img.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .screenshot-caption-bar {
+      padding: 12px 18px;
+      background: #090d14;
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 0.84rem;
+    }
+
+    .caption-title {
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .caption-desc {
+      color: var(--text-muted);
+      font-size: 0.82rem;
+    }
+
+    /* Thumbnail Strip */
+    .screens-strip {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-top: 14px;
+    }
+
+    .thumb-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      text-align: left;
+    }
+
+    .thumb-card:hover {
+      border-color: var(--border-hover);
+      transform: translateY(-1px);
+    }
+
+    .thumb-card.active {
+      border-color: var(--accent);
+      background: var(--bg-surface-elevated);
+    }
+
+    .thumb-img-wrap {
+      border-radius: 5px;
+      overflow: hidden;
+      aspect-ratio: 1001 / 656;
+      margin-bottom: 7px;
+      background: #000;
+      border: 1px solid rgba(255, 255, 255, 0.04);
+    }
+
+    .thumb-img-wrap img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
       display: block;
     }
 
-    /* Features */
-    .features {
-      padding: 24px 0 60px;
+    .thumb-title {
+      font-family: var(--font-mono);
+      font-size: 0.76rem;
+      font-weight: 600;
+      color: var(--text);
+      display: block;
+    }
+
+    .thumb-sub {
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      display: block;
+    }
+
+    /* Purpose & RAM Efficiency Section */
+    .efficiency-section {
+      margin-bottom: 72px;
+    }
+
+    .manifesto-box {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 36px 32px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .section-eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+    }
+
+    .manifesto-title {
+      font-size: clamp(1.4rem, 2.6vw, 1.85rem);
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      margin-bottom: 16px;
+      color: #ffffff;
+      line-height: 1.3;
+    }
+
+    .manifesto-text {
+      font-size: 0.98rem;
+      color: var(--text-muted);
+      line-height: 1.68;
+      margin-bottom: 20px;
+    }
+
+    .manifesto-text strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    /* RAM Benchmark Meter */
+    .ram-benchmark {
+      background: #080b11;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 22px;
+      margin: 28px 0 24px;
+    }
+
+    .ram-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .ram-header-title {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .ram-tested-tag {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      padding: 2px 7px;
+      border-radius: 4px;
+    }
+
+    .meter-row {
+      margin-bottom: 16px;
+    }
+
+    .meter-row:last-child {
+      margin-bottom: 0;
+    }
+
+    .meter-info {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.82rem;
+      margin-bottom: 6px;
+    }
+
+    .meter-label {
+      color: var(--text-muted);
+    }
+
+    .meter-val {
+      font-family: var(--font-mono);
+      font-weight: 500;
+      color: var(--text-muted);
+    }
+
+    .meter-track {
+      width: 100%;
+      height: 10px;
+      background: #111622;
+      border-radius: 5px;
+      overflow: hidden;
+    }
+
+    .meter-fill {
+      height: 100%;
+      border-radius: 5px;
+    }
+
+    .fill-browser {
+      width: 95%;
+      background: #ef4444;
+      opacity: 0.8;
+    }
+
+    .fill-electron {
+      width: 48%;
+      background: #f59e0b;
+      opacity: 0.8;
+    }
+
+    .fill-hakfm {
+      width: 1.2%;
+      min-width: 10px;
+      background: var(--accent);
+      box-shadow: 0 0 10px var(--accent-glow);
+    }
+
+    .meter-row.highlight .meter-label {
+      color: #ffffff;
+      font-weight: 600;
+    }
+
+    .meter-row.highlight .meter-val {
+      color: #ffffff;
+      font-weight: 600;
+    }
+
+    /* Quick Specs Metric Row */
+    .specs-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-top: 24px;
+    }
+
+    .spec-card {
+      background: rgba(10, 14, 22, 0.6);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px;
+      text-align: center;
+    }
+
+    .spec-value {
+      font-family: var(--font-mono);
+      font-size: 1.35rem;
+      font-weight: 600;
+      color: #ffffff;
+      display: block;
+      margin-bottom: 2px;
+    }
+
+    .spec-label {
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    /* Features Grid */
+    .features-section {
+      margin-bottom: 72px;
+    }
+
+    .section-header {
+      margin-bottom: 28px;
+    }
+
+    .section-title {
+      font-size: 1.45rem;
+      font-weight: 700;
+      letter-spacing: -0.4px;
+      color: #ffffff;
+      margin-bottom: 6px;
+    }
+
+    .section-desc {
+      color: var(--text-muted);
+      font-size: 0.9rem;
     }
 
     .features-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-      gap: 20px;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
     }
 
-    .feature-item {
-      padding: 20px;
-      background: var(--card-bg);
+    .feature-card {
+      background: var(--bg-surface);
       border: 1px solid var(--border);
-      border-radius: 8px;
+      border-radius: 10px;
+      padding: 20px;
+      transition: border-color 0.15s ease;
     }
 
-    .feature-item h3 {
-      font-size: 0.98rem;
+    .feature-card:hover {
+      border-color: var(--border-hover);
+    }
+
+    .feature-tag {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      margin-bottom: 10px;
+      display: block;
+    }
+
+    .feature-card h3 {
+      font-size: 0.96rem;
       font-weight: 600;
       margin-bottom: 8px;
       color: var(--text);
     }
 
-    .feature-item p {
-      font-size: 0.88rem;
+    .feature-card p {
+      font-size: 0.85rem;
       color: var(--text-muted);
-      line-height: 1.5;
+      line-height: 1.55;
     }
 
-    /* Keybindings Summary */
-    .keys-section {
-      padding: 0 0 60px;
-    }
-
-    .keys-bar {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: center;
-      gap: 8px;
-      margin-top: 16px;
-    }
-
-    .key-pill {
-      font-family: var(--font-mono);
-      font-size: 0.8rem;
-      background: var(--card-bg);
+    /* Clean Structured Keyboard Controls */
+    .controls-section {
+      margin-bottom: 72px;
+      background: var(--bg-surface);
       border: 1px solid var(--border);
-      padding: 6px 12px;
-      border-radius: 6px;
+      border-radius: 12px;
+      padding: 32px 28px;
+    }
+
+    .controls-header {
+      margin-bottom: 24px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .controls-header h3 {
+      font-size: 1.15rem;
+      font-weight: 600;
+      color: #ffffff;
+    }
+
+    .controls-header p {
+      font-size: 0.82rem;
+      color: var(--text-dim);
+    }
+
+    .controls-deck {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 28px;
+    }
+
+    .control-group-title {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-dim);
+      margin-bottom: 14px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .control-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .control-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 0.82rem;
+      gap: 12px;
+    }
+
+    .control-desc {
       color: var(--text-muted);
     }
 
-    .key-pill code {
-      color: var(--cyan);
+    .control-keys {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+
+    kbd {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      color: var(--text);
+      background: #151b27;
+      border: 1px solid #232d3f;
+      border-bottom: 2px solid #1a2230;
+      padding: 2px 7px;
+      border-radius: 4px;
+      box-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
+      white-space: nowrap;
+    }
+
+    .key-sep {
+      font-size: 0.7rem;
+      color: var(--text-dim);
+    }
+
+    /* Alternative Installation */
+    .alt-install {
+      margin-bottom: 64px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 24px 26px;
+    }
+
+    .alt-install h4 {
+      font-size: 0.92rem;
       font-weight: 600;
+      color: var(--text);
+      margin-bottom: 16px;
+    }
+
+    .alt-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 14px;
+    }
+
+    .alt-card {
+      background: #090d14;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 12px 14px;
+    }
+
+    .alt-title {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+      display: block;
+      font-weight: 500;
+    }
+
+    .alt-card code {
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      color: var(--text);
+      word-break: break-all;
+      display: block;
+      line-height: 1.45;
     }
 
     /* Footer */
     footer {
-      border-top: 1px solid var(--border);
+      border-top: 1px solid var(--border-subtle);
       padding: 32px 0 48px;
       text-align: center;
-      font-size: 0.85rem;
+      font-size: 0.84rem;
+      color: var(--text-dim);
+    }
+
+    .footer-quote {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
       color: var(--text-muted);
+      margin-bottom: 10px;
     }
 
     footer a {
-      color: var(--text);
+      color: var(--text-muted);
       text-decoration: none;
+      transition: color 0.15s ease;
     }
 
     footer a:hover {
-      color: var(--green);
+      color: var(--text);
+    }
+
+    /* Responsive */
+    @media (max-width: 820px) {
+      .controls-deck {
+        grid-template-columns: 1fr;
+        gap: 22px;
+      }
+      .specs-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .screens-strip {
+        grid-template-columns: 1fr;
+      }
     }
 
     @media (max-width: 600px) {
@@ -285,113 +971,422 @@
         flex-direction: column;
         align-items: stretch;
       }
-      .install-cmd {
-        font-size: 0.78rem;
-      }
       .copy-btn {
         justify-content: center;
+      }
+      .manifesto-box {
+        padding: 24px 18px;
       }
     }
   </style>
 </head>
 <body>
+
+  <!-- Atmospheric Ambient Glow Backdrop -->
+  <div class="ambient-glow-layer" aria-hidden="true">
+    <div class="ambient-light ambient-light-1"></div>
+    <div class="ambient-light ambient-light-2"></div>
+    <div class="ambient-light ambient-light-3"></div>
+  </div>
+  <div class="grid-texture" aria-hidden="true"></div>
+
   <div class="container">
+    <!-- Header -->
     <header>
       <a href="#" class="brand">
-        <span class="brand-dot"></span>
-        HAK.FM
+        <span class="brand-status-dot"></span>
+        <span>hakfm</span>
+        <span class="brand-badge">v2.0</span>
       </a>
       <nav class="nav-links">
-        <a href="https://github.com/Deltafsociety/hakfm-TUI" target="_blank">GitHub</a>
-        <a href="https://github.com/Deltafsociety/hakfm-TUI/releases" target="_blank">Releases</a>
+        <a href="#why-hakfm">Why hakfm?</a>
+        <a href="#screenshots">Screenshots</a>
+        <a href="#controls">Controls</a>
+        <a href="https://github.com/Deltafsociety/hakfm-TUI" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/Deltafsociety/hakfm-TUI/releases" target="_blank" rel="noopener">Releases</a>
       </nav>
     </header>
 
     <main>
+      <!-- Hero Section -->
       <section class="hero">
-        <h1>Terminal Radio Receiver.</h1>
+        <div class="hero-eyebrow">
+          <span class="hero-eyebrow-dot"></span>
+          <span>Terminal Radio Receiver · Rust + mpv</span>
+        </div>
+
+        <h1>
+          Built for deep focus.<br>
+          <span class="hero-highlight">Tested at ~15MB of RAM.</span>
+        </h1>
+
         <p class="hero-subtitle">
-          Curated hacker streams, ambient frequencies, and live web search in your terminal.
+          Curated hacker streams, ambient frequencies, live web radio search, and real-time audio visualizers in your terminal. Zero web bloat.
         </p>
 
-        <!-- Clean One-Liner Install -->
+        <!-- Install Box -->
         <div class="install-box">
           <div class="install-cmd">
             <span class="prompt">$</span><span id="cmd-text">curl -fsSL https://raw.githubusercontent.com/Deltafsociety/hakfm-TUI/main/install.sh | bash</span>
           </div>
-          <button class="copy-btn" id="copy-btn" onclick="copyCommand()">
+          <button class="copy-btn" id="copy-btn" onclick="copyCommand()" aria-label="Copy installation command">
+            <svg class="copy-icon" viewBox="0 0 24 24">
+              <path d="M16 1H4C2.9 1 2 1.9 2 3v14h2V3h12V1zm3 4H8C6.9 5 6 5.9 6 7v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
+            </svg>
             <span id="copy-label">Copy</span>
           </button>
         </div>
-        <p class="install-note">One-liner installer for Linux & macOS · Powered by headless mpv</p>
+        <p class="install-note">Linux &amp; macOS one-liner · Powered by headless mpv · Launches in &lt;10ms</p>
+      </section>
 
-        <!-- Screenshot (looks for 1.png with automatic fallback) -->
-        <div class="screenshot-wrapper">
-          <div class="window-bar">
-            <span class="dot"></span>
-            <span class="dot"></span>
-            <span class="dot"></span>
+      <!-- Screenshot Showcase -->
+      <section class="showcase-section" id="screenshots">
+        <div class="tabs-bar" role="tablist">
+          <button class="tab-btn active" onclick="switchScreenshot(0)" role="tab" id="tab-0">
+            <span class="tab-dot"></span>
+            <span>Cyberpunk · Spectrum</span>
+          </button>
+          <button class="tab-btn" onclick="switchScreenshot(1)" role="tab" id="tab-1">
+            <span class="tab-dot"></span>
+            <span>Nord · Web Search</span>
+          </button>
+          <button class="tab-btn" onclick="switchScreenshot(2)" role="tab" id="tab-2">
+            <span class="tab-dot"></span>
+            <span>Dracula · Waveform</span>
+          </button>
+        </div>
+
+        <div class="screenshot-container">
+          <div class="screenshot-glow" id="ambient-screen-glow"></div>
+          <div class="screenshot-wrapper">
+            <div class="window-bar">
+              <div class="window-dots">
+                <span class="dot dot-close"></span>
+                <span class="dot dot-min"></span>
+                <span class="dot dot-max"></span>
+              </div>
+              <div class="window-title" id="terminal-window-title">
+                terminal — hakfm v2.0 [Cyberpunk]
+              </div>
+              <div class="window-meta">
+                ~15MB RSS
+              </div>
+            </div>
+
+            <div class="screenshot-viewport">
+              <img 
+                src="screenshots/screenshot1.png" 
+                alt="hakfm v2.0 Cyberpunk Theme with Spectrum Visualizer and DEF CON Radio" 
+                class="screenshot-img active" 
+                id="screen-img-0"
+              >
+              <img 
+                src="screenshots/screenshot2.png" 
+                alt="hakfm v2.0 Nord Theme with In-TUI Web Search on internet-radio.com" 
+                class="screenshot-img" 
+                id="screen-img-1"
+              >
+              <img 
+                src="screenshots/screenshot3.png" 
+                alt="hakfm v2.0 Dracula Theme with Flowing Audio Waveform Visualizer" 
+                class="screenshot-img" 
+                id="screen-img-2"
+              >
+            </div>
+
+            <div class="screenshot-caption-bar">
+              <div class="caption-title" id="caption-title">
+                Cyberpunk Theme · Station Library &amp; Audio Spectrum
+              </div>
+              <div class="caption-desc" id="caption-desc">
+                Live DEF CON Radio with real-time animated spectrum analyzer
+              </div>
+            </div>
           </div>
-          <img 
-            src="screenshots/screenshot3.png"
-            onerror="this.onerror=null; this.src='screenshots/screenshot1.png';" 
-            alt="HAK.FM TUI Screenshot" 
-            class="screenshot-img"
-          >
+        </div>
+
+        <!-- Thumbnail Strip -->
+        <div class="screens-strip">
+          <div class="thumb-card active" onclick="switchScreenshot(0)" id="thumb-0">
+            <div class="thumb-img-wrap">
+              <img src="screenshots/screenshot1.png" alt="Cyberpunk Preview">
+            </div>
+            <span class="thumb-title">01 / Cyberpunk</span>
+            <span class="thumb-sub">Spectrum visualizer</span>
+          </div>
+
+          <div class="thumb-card" onclick="switchScreenshot(1)" id="thumb-1">
+            <div class="thumb-img-wrap">
+              <img src="screenshots/screenshot2.png" alt="Nord Preview">
+            </div>
+            <span class="thumb-title">02 / Nord Frost</span>
+            <span class="thumb-sub">Live internet-radio search</span>
+          </div>
+
+          <div class="thumb-card" onclick="switchScreenshot(2)" id="thumb-2">
+            <div class="thumb-img-wrap">
+              <img src="screenshots/screenshot3.png" alt="Dracula Preview">
+            </div>
+            <span class="thumb-title">03 / Dracula</span>
+            <span class="thumb-sub">Audio waveform mode</span>
+          </div>
         </div>
       </section>
 
-      <!-- Key features -->
-      <section class="features">
+      <!-- Purpose Section & RAM Efficiency -->
+      <section class="efficiency-section" id="why-hakfm">
+        <div class="manifesto-box">
+          <div class="section-eyebrow">The Philosophy · Zero Bloat</div>
+          <h2 class="manifesto-title">
+            Simple utilities shouldn’t consume gigabytes of your memory.
+          </h2>
+
+          <p class="manifesto-text">
+            Modern applications have largely abandoned lean, efficient programming. 
+            Everything today arrives packaged in a multi-hundred-megabyte Chromium engine or Electron wrapper. 
+            Opening a single streaming tab just to play ambient music while your compiler runs already eats 
+            <strong>1.5 GB to 2 GB of RAM</strong> and leaves telemetry churn in the background.
+          </p>
+
+          <p class="manifesto-text">
+            <strong>hakfm was built to prove software can still be fast, focused, and respectful of your hardware.</strong> 
+            Written in native Rust with Ratatui and backed by headless mpv, real-world benchmarks show that hakfm 
+            consistently operates at a tested <strong>~15MB of RAM</strong>. 
+            No Electron runtime, no analytics, no web overhead — just sound and terminal focus.
+          </p>
+
+          <!-- RAM Comparison Meter -->
+          <div class="ram-benchmark">
+            <div class="ram-header">
+              <span class="ram-header-title">Measured Memory Consumption (RSS)</span>
+              <span class="ram-tested-tag">Tested on Linux</span>
+            </div>
+
+            <div class="meter-row">
+              <div class="meter-info">
+                <span class="meter-label">Web Browser Tab (YouTube Music / Stream)</span>
+                <span class="meter-val">~1,800 MB</span>
+              </div>
+              <div class="meter-track">
+                <div class="meter-fill fill-browser"></div>
+              </div>
+            </div>
+
+            <div class="meter-row">
+              <div class="meter-info">
+                <span class="meter-label">Desktop Client (Electron / Chromium wrapper)</span>
+                <span class="meter-val">~850 MB</span>
+              </div>
+              <div class="meter-track">
+                <div class="meter-fill fill-electron"></div>
+              </div>
+            </div>
+
+            <div class="meter-row highlight">
+              <div class="meter-info">
+                <span class="meter-label">hakfm (Safe Rust + headless mpv)</span>
+                <span class="meter-val">~15 MB (99% less memory)</span>
+              </div>
+              <div class="meter-track">
+                <div class="meter-fill fill-hakfm"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Quick Metrics Grid -->
+          <div class="specs-grid">
+            <div class="spec-card">
+              <span class="spec-value">~15 MB</span>
+              <span class="spec-label">Tested RAM Footprint</span>
+            </div>
+            <div class="spec-card">
+              <span class="spec-value">&lt;10 ms</span>
+              <span class="spec-label">Cold Boot Time</span>
+            </div>
+            <div class="spec-card">
+              <span class="spec-value">0 KB</span>
+              <span class="spec-label">Telemetry / Tracking</span>
+            </div>
+            <div class="spec-card">
+              <span class="spec-value">100%</span>
+              <span class="spec-label">Safe Native Rust</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Features Grid -->
+      <section class="features-section">
+        <div class="section-header">
+          <h2 class="section-title">Designed for Keyboard Flow</h2>
+          <p class="section-desc">Focused terminal radio capabilities without extraneous noise.</p>
+        </div>
+
         <div class="features-grid">
-          <div class="feature-item">
-            <h3>Preset Stations</h3>
-            <p>Direct SomaFM streams including DEF CON Radio, Drone Zone, Groove Salad, and Deep Space One.</p>
+          <div class="feature-card">
+            <span class="feature-tag">01 / STREAMS</span>
+            <h3>Curated Presets</h3>
+            <p>Direct streams including DEF CON Radio, Drone Zone, Groove Salad, Deep Space One, Mission Control, and MansionNET.</p>
           </div>
-          <div class="feature-item">
+
+          <div class="feature-card">
+            <span class="feature-tag">02 / DISCOVERY</span>
             <h3>Live Web Search</h3>
-            <p>Query and stream thousands of internet-radio.com stations live inside the TUI via <code>i</code>.</p>
+            <p>Query thousands of stations across every genre on internet-radio.com directly inside the TUI without leaving your terminal.</p>
           </div>
-          <div class="feature-item">
-            <h3>Custom Streams</h3>
-            <p>Add your own streams (.mp3, .pls, .m3u, Icecast). Automatically saved in your config.</p>
+
+          <div class="feature-card">
+            <span class="feature-tag">03 / AUDIO</span>
+            <h3>Animated Visualizers</h3>
+            <p>Toggle between real-time Spectrum Analyzer, Waveform, Stereo VU Peak Meter, Matrix Dots, or Off for absolute minimalism.</p>
           </div>
-          <div class="feature-item">
-            <h3>Vim & Arrow Keys</h3>
-            <p>Full keyboard control with standard arrow navigation or classic <code>hjkl</code> bindings.</p>
+
+          <div class="feature-card">
+            <span class="feature-tag">04 / THEMES</span>
+            <h3>5 Palettes</h3>
+            <p>Hand-tuned color themes: Cyberpunk, Nord Arctic, Dracula, Matrix Phosphor, and Slate Stealth for quiet midnight sessions.</p>
           </div>
-          <div class="feature-item">
-            <h3>Favorites & Filters</h3>
-            <p>Star stations with <code>s</code>, view favorites with <code>f</code>, or search locally with <code>/</code>.</p>
+
+          <div class="feature-card">
+            <span class="feature-tag">05 / LIBRARY</span>
+            <h3>Custom Stations</h3>
+            <p>Add custom Icecast, Shoutcast, .pls, .m3u, or direct MP3 URLs in two seconds. Auto-persisted in your local config.</p>
           </div>
-          <div class="feature-item">
-            <h3>Lightweight & Fast</h3>
-            <p>Written in Rust with Ratatui and backed by mpv. Minimal CPU and memory footprint.</p>
+
+          <div class="feature-card">
+            <span class="feature-tag">06 / CONTROL</span>
+            <h3>Vim &amp; Arrow Navigation</h3>
+            <p>Full keyboard ergonomics with both arrow keys and classic hjkl bindings. Filter libraries instantly with single-key shortcuts.</p>
           </div>
         </div>
       </section>
 
-      <!-- Quick keys -->
-      <section class="keys-section">
-        <div class="keys-bar">
-          <span class="key-pill"><code>Enter</code> Play</span>
-          <span class="key-pill"><code>Space</code> Pause</span>
-          <span class="key-pill"><code>↑/↓</code> Navigate</span>
-          <span class="key-pill"><code>Tab</code> Switch Views</span>
-          <span class="key-pill"><code>i</code> Web Search</span>
-          <span class="key-pill"><code>a</code> Add Station</span>
-          <span class="key-pill"><code>s</code> Star ★</span>
-          <span class="key-pill"><code>/</code> Filter</span>
-          <span class="key-pill"><code>?</code> Help</span>
-          <span class="key-pill"><code>q</code> Quit</span>
+      <!-- Structured Keyboard Controls Section -->
+      <section class="controls-section" id="controls">
+        <div class="controls-header">
+          <h3>Keyboard Controls</h3>
+          <p>Operate everything from the keyboard with standard arrows or Vim bindings.</p>
+        </div>
+
+        <div class="controls-deck">
+          <!-- Column 1: Playback & Navigation -->
+          <div>
+            <div class="control-group-title">Playback &amp; Navigation</div>
+            <div class="control-list">
+              <div class="control-row">
+                <span class="control-desc">Tune in / play station</span>
+                <span class="control-keys"><kbd>Enter</kbd></span>
+              </div>
+              <div class="control-row">
+                <span class="control-desc">Pause / resume</span>
+                <span class="control-keys"><kbd>Space</kbd></span>
+              </div>
+              <div class="control-row">
+                <span class="control-desc">Navigate stations</span>
+                <span class="control-keys"><kbd>↑</kbd><kbd>↓</kbd><span class="key-sep">/</span><kbd>j</kbd><kbd>k</kbd></span>
+              </div>
+              <div class="control-row">
+                <span class="control-desc">Prev / next channel</span>
+                <span class="control-keys"><kbd>←</kbd><kbd>→</kbd><span class="key-sep">/</span><kbd>h</kbd><kbd>l</kbd></span>
+              </div>
+              <div class="control-row">
+                <span class="control-desc">Stop playback</span>
+                <span class="control-keys"><kbd>x</kbd></span>
+              </div>
+              <div class="control-row">
+                <span class="control-desc">Quit cleanly</span>
+                <span class="control-keys"><kbd>q</kbd><span class="key-sep">/</span><kbd>Esc</kbd></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Column 2: Library & Search -->
+          <div>
+            <div class="control-group-title">Library &amp; Search</div>
+            <div class="control-list">
+              <div class="control-row">
+                <span class="control-desc">Switch Library ⟷ Web</span>
+                <span class="control-keys"><kbd>Tab</kbd><span class="key-sep">/</span><kbd>1</kbd><kbd>2</kbd></span>
+              </div>
+              <div class="control-row">
+                <span class="control-desc">Search web radio</span>
+                <span class="control-keys"><kbd>i</kbd></span>
+              </div>
+              <div class="control-row">
+                <span class="control-desc">Filter active list</span>
+                <span class="control-keys"><kbd>/</kbd></span>
+              </div>
+              <div class="control-row">
+                <span class="control-desc">Star / favorite</span>
+                <span class="control-keys"><kbd>s</kbd></span>
+              </div>
+              <div class="control-row">
+                <span class="control-desc">Show favorites only</span>
+                <span class="control-keys"><kbd>f</kbd></span>
+              </div>
+              <div class="control-row">
+                <span class="control-desc">Reset all filters</span>
+                <span class="control-keys"><kbd>r</kbd></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Column 3: Visuals & Config -->
+          <div>
+            <div class="control-group-title">Visuals &amp; Management</div>
+            <div class="control-list">
+              <div class="control-row">
+                <span class="control-desc">Cycle visualizer mode</span>
+                <span class="control-keys"><kbd>v</kbd></span>
+              </div>
+              <div class="control-row">
+                <span class="control-desc">Cycle color theme</span>
+                <span class="control-keys"><kbd>t</kbd></span>
+              </div>
+              <div class="control-row">
+                <span class="control-desc">Add custom stream</span>
+                <span class="control-keys"><kbd>a</kbd></span>
+              </div>
+              <div class="control-row">
+                <span class="control-desc">Delete custom station</span>
+                <span class="control-keys"><kbd>d</kbd><span class="key-sep">/</span><kbd>Del</kbd></span>
+              </div>
+              <div class="control-row">
+                <span class="control-desc">In-TUI cheatsheet</span>
+                <span class="control-keys"><kbd>?</kbd></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Alternative Installations -->
+      <section class="alt-install">
+        <h4>Alternative Installation Methods</h4>
+        <div class="alt-grid">
+          <div class="alt-card">
+            <span class="alt-title">Static Musl Binary (Linux x86_64)</span>
+            <code>curl -LO https://github.com/Deltafsociety/hakfm-TUI/releases/latest/download/hakfm-linux-x86_64 &amp;&amp; chmod +x hakfm-linux-x86_64 &amp;&amp; mv hakfm-linux-x86_64 ~/.local/bin/hakfm</code>
+          </div>
+          <div class="alt-card">
+            <span class="alt-title">Install via Cargo</span>
+            <code>cargo install --git https://github.com/Deltafsociety/hakfm-TUI.git</code>
+          </div>
+          <div class="alt-card">
+            <span class="alt-title">Build From Source</span>
+            <code>git clone https://github.com/Deltafsociety/hakfm-TUI.git &amp;&amp; cd hakfm-TUI &amp;&amp; ./build.sh</code>
+          </div>
         </div>
       </section>
     </main>
 
+    <!-- Footer -->
     <footer>
+      <p class="footer-quote">// stay paranoid, stay free · built for lean computing</p>
       <p>
-        Built by <a href="https://zist.digital/delta/contact-me/" target="_blank">Delta Fsociety</a> · 
-        <a href="https://github.com/Deltafsociety/hakfm-TUI" target="_blank">GitHub</a> · 
+        By <a href="https://zist.digital/delta/contact-me/" target="_blank" rel="noopener">Delta Fsociety</a> · 
+        <a href="https://github.com/Deltafsociety/hakfm-TUI" target="_blank" rel="noopener">GitHub</a> · 
+        <a href="https://github.com/Deltafsociety/hakfm-TUI/releases" target="_blank" rel="noopener">Releases</a> · 
         MIT License
       </p>
     </footer>
@@ -404,13 +1399,72 @@
         const btn = document.getElementById('copy-btn');
         const label = document.getElementById('copy-label');
         btn.classList.add('copied');
-        label.textContent = 'Copied!';
+        label.textContent = 'Copied';
         setTimeout(() => {
           btn.classList.remove('copied');
           label.textContent = 'Copy';
-        }, 1800);
+        }, 2000);
       });
     }
+
+    const screens = [
+      {
+        title: "Cyberpunk Theme · Station Library & Audio Spectrum",
+        desc: "Live DEF CON Radio with real-time animated spectrum analyzer",
+        windowTitle: "terminal — hakfm v2.0 [Cyberpunk]",
+        glow: "radial-gradient(circle, rgba(56, 189, 248, 0.16) 0%, rgba(45, 212, 191, 0.08) 50%, transparent 80%)"
+      },
+      {
+        title: "Nord Theme · Live Web Radio Search",
+        desc: "Query and stream thousands of stations on internet-radio.com directly in the TUI",
+        windowTitle: "terminal — hakfm v2.0 [Nord · Web Search]",
+        glow: "radial-gradient(circle, rgba(56, 189, 248, 0.18) 0%, rgba(129, 140, 248, 0.08) 50%, transparent 80%)"
+      },
+      {
+        title: "Dracula Theme · Audio Waveform Visualizer",
+        desc: "Pastel dark aesthetic with real-time audio waveform visualizer",
+        windowTitle: "terminal — hakfm v2.0 [Dracula · Waveform]",
+        glow: "radial-gradient(circle, rgba(167, 139, 250, 0.16) 0%, rgba(248, 113, 113, 0.08) 50%, transparent 80%)"
+      }
+    ];
+
+    let currentScreen = 0;
+    let autoRotateTimer = null;
+
+    function switchScreenshot(index, isUserInteraction = true) {
+      if (isUserInteraction && autoRotateTimer) {
+        clearInterval(autoRotateTimer);
+        autoRotateTimer = null;
+      }
+
+      currentScreen = index;
+      for (let i = 0; i < 3; i++) {
+        const img = document.getElementById(`screen-img-${i}`);
+        const tab = document.getElementById(`tab-${i}`);
+        const thumb = document.getElementById(`thumb-${i}`);
+        
+        if (i === index) {
+          img.classList.add('active');
+          tab.classList.add('active');
+          thumb.classList.add('active');
+        } else {
+          img.classList.remove('active');
+          tab.classList.remove('active');
+          thumb.classList.remove('active');
+        }
+      }
+
+      const data = screens[index];
+      document.getElementById('terminal-window-title').textContent = data.windowTitle;
+      document.getElementById('caption-title').textContent = data.title;
+      document.getElementById('caption-desc').textContent = data.desc;
+      document.getElementById('ambient-screen-glow').style.background = data.glow;
+    }
+
+    autoRotateTimer = setInterval(() => {
+      const next = (currentScreen + 1) % 3;
+      switchScreenshot(next, false);
+    }, 8000);
   </script>
 </body>
 </html>
