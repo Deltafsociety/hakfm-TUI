@@ -1,3 +1,9 @@
+mod media_controls;
+mod sleep_timer;
+
+use media_controls::{MediaAction, SystemMediaControls};
+use sleep_timer::{parse_duration, SleepTimer};
+use souvlaki::MediaPlayback;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute,
@@ -540,6 +546,7 @@ enum InputMode {
     Filter,
     InternetRadioSearch,
     AddStation,
+    SleepTimer,
 }
 
 #[derive(Default)]
@@ -562,6 +569,12 @@ struct App {
     search: String,
     status: String,
     current_station: Option<Station>,
+    playback_queue: Vec<Station>,
+    playback_index: usize,
+    media_controls: Option<SystemMediaControls>,
+    sleep_timer: Option<SleepTimer>,
+    timer_input: String,
+    timer_error: Option<String>,
     player: Option<Child>,
     paused: bool,
     started: Option<Instant>,
@@ -585,8 +598,11 @@ struct App {
 
 impl App {
     fn new() -> Self {
+        Self::with_config(load_config())
+    }
+
+    fn with_config(config: Config) -> Self {
         let mut stations = preset_stations();
-        let config = load_config();
 
         for custom in &config.custom_stations {
             let mut c = custom.clone();
@@ -606,6 +622,12 @@ impl App {
             search: String::new(),
             status: "Ready. Pick a station to tune in (ง'̀-'́)ง".into(),
             current_station: None,
+            playback_queue: Vec::new(),
+            playback_index: 0,
+            media_controls: None,
+            sleep_timer: None,
+            timer_input: String::new(),
+            timer_error: None,
             player: None,
             paused: false,
             started: None,
@@ -673,6 +695,8 @@ impl App {
                 }
                 let idx = self.filtered[self.selected];
                 let station = self.stations[idx].clone();
+                self.playback_queue = self.filtered.iter().map(|&i| self.stations[i].clone()).collect();
+                self.playback_index = self.selected;
                 self.play_station(station);
             }
             ViewMode::InternetRadio => {
@@ -681,6 +705,8 @@ impl App {
                     return;
                 }
                 let station = self.ir_stations[self.ir_selected].clone();
+                self.playback_queue = self.ir_stations.clone();
+                self.playback_index = self.ir_selected;
                 self.play_station(station);
             }
         }
@@ -692,7 +718,7 @@ impl App {
         let name = station.name.clone();
 
         let child = Command::new("mpv")
-            .args(["--no-video", "--really-quiet", "--force-window=no", "--term-status-msg="])
+            .args(["--no-video", "--really-quiet", "--force-window=no", "--term-status-msg=", "--input-media-keys=no"])
             .arg(&url)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -710,7 +736,10 @@ impl App {
                 self.status = format!("Playing '{name}' · Enjoy the noise (ง'̀-'́)ง");
                 save_config(&self.config);
             }
-            Err(e) => self.status = format!("mpv failed to start: {e} (is mpv installed?)"),
+            Err(e) => {
+                self.current_station = None;
+                self.status = format!("mpv failed to start: {e} (is mpv installed?)");
+            }
         }
     }
 
@@ -756,6 +785,103 @@ impl App {
                 self.ir_selected = (self.ir_selected as isize + delta).rem_euclid(len) as usize;
                 self.play_selected();
             }
+        }
+    }
+
+    fn queued_station(&mut self, delta: isize) -> Option<Station> {
+        if self.playback_queue.is_empty() {
+            return None;
+        }
+        self.playback_index = (self.playback_index as isize + delta)
+            .rem_euclid(self.playback_queue.len() as isize) as usize;
+        self.playback_queue.get(self.playback_index).cloned()
+    }
+
+    fn handle_media_action(&mut self, action: MediaAction) {
+        match action {
+            MediaAction::Play => {
+                if self.paused {
+                    self.toggle_pause();
+                } else if self.player.is_none() {
+                    self.play_selected();
+                }
+            }
+            MediaAction::Pause => {
+                if self.player.is_some() && !self.paused {
+                    self.toggle_pause();
+                }
+            }
+            MediaAction::Toggle => {
+                if self.current_station.is_some() {
+                    self.toggle_pause();
+                } else {
+                    self.play_selected();
+                }
+            }
+            MediaAction::Next | MediaAction::Previous => {
+                let delta = if action == MediaAction::Next { 1 } else { -1 };
+                if let Some(station) = self.queued_station(delta) {
+                    if let Some(pos) = self.filtered.iter().position(|&i| self.stations[i].url == station.url) {
+                        self.selected = pos;
+                    }
+                    if let Some(pos) = self.ir_stations.iter().position(|s| s.url == station.url) {
+                        self.ir_selected = pos;
+                    }
+                    self.play_station(station);
+                } else {
+                    self.next(delta);
+                }
+            }
+            MediaAction::Stop => {
+                self.sleep_timer = None;
+                self.stop_player();
+                self.current_station = None;
+                self.status = "Playback stopped.".into();
+            }
+        }
+    }
+
+    fn poll_media_controls(&mut self) {
+        media_controls::pump_events();
+        while let Some(action) = self.media_controls.as_ref().and_then(|controls| controls.poll()) {
+            self.handle_media_action(action);
+        }
+        let playback = if self.paused {
+            MediaPlayback::Paused { progress: None }
+        } else if self.player.is_some() {
+            MediaPlayback::Playing { progress: None }
+        } else {
+            MediaPlayback::Stopped
+        };
+        if let Some(controls) = self.media_controls.as_mut() {
+            if let Err(error) = controls.update(self.current_station.as_ref(), playback) {
+                self.status = format!("System media controls unavailable: {error}. Terminal controls still work.");
+                self.media_controls = None;
+            }
+        }
+    }
+
+    fn submit_sleep_timer(&mut self, now: Instant) {
+        let result = parse_duration(&self.timer_input)
+            .and_then(|duration| duration.map(|d| SleepTimer::new(d, now)).transpose());
+        match result {
+            Ok(timer) => {
+                self.sleep_timer = timer;
+                self.status = match timer {
+                    Some(timer) => format!("Sleep timer set for {}. Playback will stop when it ends.", timer.label(now)),
+                    None => "Sleep timer cancelled.".into(),
+                };
+                self.timer_error = None;
+                self.input_mode = InputMode::Normal;
+            }
+            Err(error) => self.timer_error = Some(error.to_string()),
+        }
+    }
+
+    fn check_sleep_timer(&mut self, now: Instant) {
+        if self.sleep_timer.is_some_and(|timer| timer.expired(now)) {
+            self.handle_media_action(MediaAction::Stop);
+            self.status = "Sleep timer finished. Playback stopped.".into();
         }
     }
 
@@ -972,6 +1098,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
     let mut app = App::new();
+    match SystemMediaControls::new() {
+        Ok(controls) => app.media_controls = Some(controls),
+        Err(error) => app.status = format!("System media controls unavailable: {error}. Terminal controls still work."),
+    }
 
     let result = run_app(&mut terminal, &mut app);
 
@@ -992,6 +1122,9 @@ fn run_app<B: ratatui::backend::Backend>(
     app: &mut App,
 ) -> io::Result<()> {
     loop {
+        // Check on every iteration, including while a form or confirmation is open.
+        app.check_sleep_timer(Instant::now());
+        app.poll_media_controls();
         if let Ok(res) = app.ir_rx.try_recv() {
             app.ir_loading = false;
             match res {
@@ -1028,6 +1161,12 @@ fn run_app<B: ratatui::backend::Backend>(
                     continue;
                 }
 
+                // Media keys work in every input mode, including open dialogs.
+                if let Some(action) = MediaAction::from_key(key.code) {
+                    app.handle_media_action(action);
+                    continue;
+                }
+
                 if app.confirm_quit {
                     match key.code {
                         KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
@@ -1048,6 +1187,25 @@ fn run_app<B: ratatui::backend::Backend>(
                 }
 
                 match app.input_mode {
+                    InputMode::SleepTimer => match key.code {
+                        KeyCode::Esc => {
+                            app.input_mode = InputMode::Normal;
+                            app.timer_error = None;
+                        }
+                        KeyCode::Enter => app.submit_sleep_timer(Instant::now()),
+                        KeyCode::Backspace => {
+                            app.timer_input.pop();
+                            app.timer_error = None;
+                        }
+                        KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                            if app.timer_input.len() < 64 {
+                                app.timer_input.push(c);
+                                app.timer_error = None;
+                            }
+                        }
+                        _ => {}
+                    },
+
                     InputMode::Filter => match key.code {
                         KeyCode::Esc => {
                             app.input_mode = InputMode::Normal;
@@ -1188,12 +1346,14 @@ fn run_app<B: ratatui::backend::Backend>(
                             }
                         }
                         KeyCode::Char('s') => app.toggle_favorite(),
-                        KeyCode::Char(' ') => app.toggle_pause(),
-                        KeyCode::Char('x') => {
-                            app.stop_player();
-                            app.current_station = None;
-                            app.status = "Playback stopped.".into();
+                        KeyCode::Char('p') => {
+                            app.show_help = false;
+                            app.timer_input.clear();
+                            app.timer_error = None;
+                            app.input_mode = InputMode::SleepTimer;
                         }
+                        KeyCode::Char(' ') => app.toggle_pause(),
+                        KeyCode::Char('x') => app.handle_media_action(MediaAction::Stop),
                         KeyCode::Enter => app.play_selected(),
                         KeyCode::Down | KeyCode::Char('j') => match app.view_mode {
                             ViewMode::Library => {
@@ -1237,7 +1397,10 @@ fn run_app<B: ratatui::backend::Backend>(
         if let Some(child) = app.player.as_mut() {
             if let Ok(Some(_)) = child.try_wait() {
                 app.player = None;
+                app.current_station = None;
                 app.started = None;
+                app.elapsed_base = Duration::ZERO;
+                app.paused = false;
                 app.status = "Stream ended or mpv disconnected.".into();
             }
         }
@@ -1394,6 +1557,13 @@ fn draw(f: &mut Frame, app: &App) {
 
     let player_card = Paragraph::new(vec![now_line1, now_line2]).block(
         Block::default()
+            .title(Line::from(Span::styled(
+                match app.sleep_timer {
+                    Some(timer) => format!(" SLEEP {} · p ", timer.label(Instant::now())),
+                    None => " p: Sleep timer ".into(),
+                },
+                Style::default().fg(if app.sleep_timer.is_some() { theme.warning } else { theme.muted }),
+            )).alignment(Alignment::Right))
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(player_border_color))
@@ -1738,6 +1908,8 @@ fn draw(f: &mut Frame, app: &App) {
 
     if app.confirm_quit {
         draw_quit_modal(f, area, &theme);
+    } else if app.input_mode == InputMode::SleepTimer {
+        draw_sleep_timer_modal(f, app, area, &theme);
     } else if app.input_mode == InputMode::InternetRadioSearch {
         draw_ir_search_modal(f, &app.ir_search_input, area, &theme);
     } else if app.input_mode == InputMode::AddStation {
@@ -2303,6 +2475,58 @@ fn draw_add_station_modal(f: &mut Frame, form: &AddStationForm, area: Rect, them
     f.render_widget(Paragraph::new(hints), rows[5]);
 }
 
+fn draw_sleep_timer_modal(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
+    let width = area.width.saturating_sub(2).min(70);
+    let height = area.height.min(15);
+    let popup = Rect::new(
+        area.x + (area.width - width) / 2,
+        area.y + (area.height - height) / 2,
+        width,
+        height,
+    );
+    f.render_widget(Clear, popup);
+    let block = Block::default()
+        .title(" SLEEP TIMER ")
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(theme.warning))
+        .style(Style::default().bg(theme.panel))
+        .padding(Padding::new(2, 2, 1, 1));
+    let rows = Layout::vertical([
+        Constraint::Length(2),
+        Constraint::Length(3),
+        Constraint::Length(2),
+        Constraint::Length(2),
+        Constraint::Length(1),
+    ]).split(block.inner(popup));
+    f.render_widget(block, popup);
+    f.render_widget(Paragraph::new("Stop playback after a duration.\nMinutes: 30   ·   Units: 90s, 30m, 1h30m")
+        .style(Style::default().fg(theme.text)), rows[0]);
+    let inner = Block::default()
+        .title(" Duration (0 or off cancels the timer) ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme.accent));
+    let input_area = inner.inner(rows[1]);
+    f.render_widget(Paragraph::new(app.timer_input.as_str())
+        .scroll((0, app.timer_input.chars().count().saturating_sub(input_area.width.saturating_sub(1) as usize) as u16))
+        .style(Style::default().fg(theme.accent))
+        .block(inner), rows[1]);
+    if input_area.width > 0 && input_area.height > 0 {
+        f.set_cursor_position((input_area.x + (app.timer_input.chars().count() as u16).min(input_area.width - 1), input_area.y));
+    }
+    let message = app.timer_error.as_deref().unwrap_or("Enter a duration to start or replace the timer.");
+    f.render_widget(Paragraph::new(message)
+        .style(Style::default().fg(if app.timer_error.is_some() { theme.error } else { theme.muted }))
+        .wrap(Wrap { trim: true }), rows[2]);
+    let active = match app.sleep_timer {
+        Some(timer) => format!("Current timer: {} remaining", timer.label(Instant::now())),
+        None => "No active timer".into(),
+    };
+    f.render_widget(Paragraph::new(active).style(Style::default().fg(theme.warning)), rows[3]);
+    f.render_widget(Paragraph::new("[Enter] Apply   [Esc] Close without changing timer")
+        .style(Style::default().fg(theme.secondary)), rows[4]);
+}
+
 fn draw_help_modal(f: &mut Frame, area: Rect, theme: &Theme) {
     let popup = centered_rect(72, 85, area);
     f.render_widget(Clear, popup);
@@ -2331,8 +2555,16 @@ fn draw_help_modal(f: &mut Frame, area: Rect, theme: &Theme) {
             Span::styled("Pause / resume audio stream", Style::default().fg(theme.text)),
         ]),
         Line::from(vec![
+            Span::styled("  Media keys     ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled("Play/pause, previous/next station (also in background)", Style::default().fg(theme.text)),
+        ]),
+        Line::from(vec![
             Span::styled("  x              ", Style::default().fg(theme.error).add_modifier(Modifier::BOLD)),
             Span::styled("Stop playback completely", Style::default().fg(theme.text)),
+        ]),
+        Line::from(vec![
+            Span::styled("  p              ", Style::default().fg(theme.warning).add_modifier(Modifier::BOLD)),
+            Span::styled("Sleep timer: minutes or 1h30m; 0/off cancels", Style::default().fg(theme.text)),
         ]),
         Line::from(vec![
             Span::styled("  ←/h , →/l      ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
@@ -2433,10 +2665,132 @@ mod tests {
     use ratatui::backend::TestBackend;
 
     #[test]
+    fn sleep_timer_stops_and_reaps_the_player_even_with_a_dialog_open() {
+        let now = Instant::now();
+        let mut app = App::with_config(Config::default());
+        app.sleep_timer = Some(SleepTimer::new(Duration::from_secs(2), now).unwrap());
+        app.current_station = Some(app.stations[0].clone());
+        app.player = Some(Command::new("sleep").arg("60").spawn().unwrap());
+        app.input_mode = InputMode::AddStation;
+        app.confirm_quit = true;
+        app.check_sleep_timer(now + Duration::from_secs(1));
+        assert!(app.player.is_some());
+        app.check_sleep_timer(now + Duration::from_secs(2));
+        assert!(app.player.is_none());
+        assert!(app.current_station.is_none());
+        assert!(app.sleep_timer.is_none());
+        assert!(!app.paused);
+        assert_eq!(app.status, "Sleep timer finished. Playback stopped.");
+    }
+
+    #[test]
+    fn timer_keeps_counting_when_paused_or_switching_stations() {
+        let now = Instant::now();
+        let mut app = App::with_config(Config::default());
+        app.sleep_timer = Some(SleepTimer::new(Duration::from_secs(10), now).unwrap());
+        // play_station uses stop_player while replacing the stream.
+        app.stop_player();
+        assert_eq!(app.sleep_timer.unwrap().label(now), "00:10");
+        app.current_station = Some(app.stations[1].clone());
+        app.paused = true;
+        app.check_sleep_timer(now + Duration::from_secs(5));
+        assert_eq!(app.sleep_timer.unwrap().label(now + Duration::from_secs(5)), "00:05");
+        app.check_sleep_timer(now + Duration::from_secs(10));
+        assert!(app.current_station.is_none());
+        assert!(!app.paused);
+    }
+
+    #[test]
+    fn invalid_timer_input_preserves_the_timer_and_off_cancels_it() {
+        let now = Instant::now();
+        let mut app = App::with_config(Config::default());
+        app.timer_input = "30".into();
+        app.submit_sleep_timer(now);
+        app.input_mode = InputMode::SleepTimer;
+        app.timer_input = "invalid".into();
+        app.submit_sleep_timer(now);
+        assert!(app.timer_error.is_some());
+        assert_eq!(app.input_mode, InputMode::SleepTimer);
+        assert_eq!(app.sleep_timer.unwrap().label(now), "30:00");
+        app.timer_input = "off".into();
+        app.submit_sleep_timer(now);
+        assert!(app.sleep_timer.is_none());
+        assert!(app.timer_error.is_none());
+        assert_eq!(app.input_mode, InputMode::Normal);
+    }
+
+    #[test]
+    fn manual_stop_cancels_the_timer() {
+        let now = Instant::now();
+        let mut app = App::with_config(Config::default());
+        app.sleep_timer = Some(SleepTimer::new(Duration::from_secs(1), now).unwrap());
+        app.handle_media_action(MediaAction::Stop);
+        assert!(app.sleep_timer.is_none());
+        app.check_sleep_timer(now + Duration::from_secs(2));
+        assert_eq!(app.status, "Playback stopped.");
+    }
+
+    #[test]
+    fn timer_dialog_and_countdown_render_in_both_views_and_terminal_sizes() {
+        for (width, height) in [(70, 18), (88, 24), (140, 45)] {
+            for view in [ViewMode::Library, ViewMode::InternetRadio] {
+                let mut app = App::with_config(Config::default());
+                app.view_mode = view;
+                app.sleep_timer = Some(SleepTimer::new(Duration::from_secs(5400), Instant::now()).unwrap());
+                let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+                terminal.draw(|f| draw(f, &app)).unwrap();
+                let text = terminal.backend().to_string();
+                assert!(text.contains("SLEEP 01:30:00"), "{width}x{height}: {text}");
+                app.input_mode = InputMode::SleepTimer;
+                app.timer_error = Some("Enter a valid duration.".into());
+                terminal.draw(|f| draw(f, &app)).unwrap();
+                let text = terminal.backend().to_string();
+                for expected in ["SLEEP TIMER", "Enter a valid duration.", "Current timer:", "[Enter] Apply", "[Esc]"] {
+                    assert!(text.contains(expected), "missing {expected} at {width}x{height}: {text}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn media_station_queue_wraps_and_survives_browsing_changes() {
+        let mut app = App::with_config(Config::default());
+        app.playback_queue = app.stations[..3].to_vec();
+        app.playback_index = 2;
+        app.view_mode = ViewMode::InternetRadio;
+        app.search = "no stations match this filter".into();
+        app.rebuild_filter();
+        assert!(app.filtered.is_empty());
+        assert_eq!(app.queued_station(1).unwrap().url, app.stations[0].url);
+        assert_eq!(app.queued_station(-1).unwrap().url, app.stations[2].url);
+        assert_eq!(app.queued_station(-1).unwrap().url, app.stations[1].url);
+    }
+
+    #[test]
+    fn empty_media_station_queue_is_safe() {
+        let mut app = App::with_config(Config::default());
+        assert!(app.queued_station(1).is_none());
+        assert!(app.queued_station(-1).is_none());
+    }
+
+    #[test]
+    fn repeated_media_pause_does_not_resume_and_stop_clears_paused_station() {
+        let mut app = App::with_config(Config::default());
+        app.current_station = Some(app.stations[0].clone());
+        app.paused = true;
+        app.handle_media_action(MediaAction::Pause);
+        assert!(app.paused);
+        assert!(app.player.is_none());
+        app.handle_media_action(MediaAction::Stop);
+        assert!(!app.paused);
+        assert!(app.current_station.is_none());
+    }
+
+    #[test]
     fn test_ui_render_standard_terminal() {
         let backend = TestBackend::new(88, 24);
         let mut terminal = Terminal::new(backend).unwrap();
-        let app = App::new();
+        let app = App::with_config(Config::default());
         terminal.draw(|f| draw(f, &app)).unwrap();
         println!("\n=== UI PREVIEW (88x24) ===\n{}", terminal.backend());
     }
@@ -2445,10 +2799,10 @@ mod tests {
     fn test_ui_render_all_themes() {
         let backend = TestBackend::new(88, 24);
         let mut terminal = Terminal::new(backend).unwrap();
-        let mut app = App::new();
+        let mut app = App::with_config(Config::default());
         for _ in 0..5 {
             terminal.draw(|f| draw(f, &app)).unwrap();
-            app.cycle_theme();
+            app.config.theme = app.config.theme.next();
         }
     }
 
@@ -2456,10 +2810,10 @@ mod tests {
     fn test_ui_render_all_visualizers() {
         let backend = TestBackend::new(88, 24);
         let mut terminal = Terminal::new(backend).unwrap();
-        let mut app = App::new();
+        let mut app = App::with_config(Config::default());
         for _ in 0..5 {
             terminal.draw(|f| draw(f, &app)).unwrap();
-            app.cycle_visualizer();
+            app.config.visualizer = app.config.visualizer.next();
         }
     }
 
@@ -2467,7 +2821,7 @@ mod tests {
     fn test_ui_render_large_terminal() {
         let backend = TestBackend::new(140, 45);
         let mut terminal = Terminal::new(backend).unwrap();
-        let mut app = App::new();
+        let mut app = App::with_config(Config::default());
         app.view_mode = ViewMode::InternetRadio;
         terminal.draw(|f| draw(f, &app)).unwrap();
     }
@@ -2476,7 +2830,7 @@ mod tests {
     fn test_ui_render_compact_terminal() {
         let backend = TestBackend::new(70, 18);
         let mut terminal = Terminal::new(backend).unwrap();
-        let mut app = App::new();
+        let mut app = App::with_config(Config::default());
         app.input_mode = InputMode::Filter;
         app.search = "ambient".to_string();
         terminal.draw(|f| draw(f, &app)).unwrap();
@@ -2507,7 +2861,7 @@ mod tests {
         {
             let backend = TestBackend::new(106, 28);
             let mut terminal = Terminal::new(backend).unwrap();
-            let mut app = App::new();
+            let mut app = App::with_config(Config::default());
             app.config.theme = ThemeMode::Cyberpunk;
             app.config.visualizer = VisualizerMode::Spectrum;
             app.current_station = Some(app.stations[0].clone());
@@ -2546,7 +2900,7 @@ mod tests {
         {
             let backend = TestBackend::new(106, 28);
             let mut terminal = Terminal::new(backend).unwrap();
-            let mut app = App::new();
+            let mut app = App::with_config(Config::default());
             app.config.theme = ThemeMode::Nord;
             app.config.visualizer = VisualizerMode::Analyzer;
             app.view_mode = ViewMode::InternetRadio;
@@ -2617,7 +2971,7 @@ mod tests {
         {
             let backend = TestBackend::new(106, 28);
             let mut terminal = Terminal::new(backend).unwrap();
-            let mut app = App::new();
+            let mut app = App::with_config(Config::default());
             app.config.theme = ThemeMode::Dracula;
             app.config.visualizer = VisualizerMode::Waveform;
             app.current_station = Some(app.stations[1].clone());

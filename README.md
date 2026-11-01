@@ -58,6 +58,8 @@
   - `Stealth` — Slate monochrome for quiet midnight sessions
 -  **Custom Station Manager (<kbd>a</kbd>):** Add your own Icecast, Shoutcast, `.pls`, or `.mp3` streams in two seconds.
 -  **Favorites & Search (<kbd>s</kbd> / <kbd>/</kbd>):** Star your go-to channels and filter large libraries instantly.
+-  **Keyboard Media Buttons:** Use Play/Pause, Next, Previous, and Stop, including when the terminal is in the background. Station information and playback state appear in your system's media controls.
+-  **Sleep Timer (<kbd>p</kbd>):** Set a countdown that stops playback automatically. Enter minutes or a duration such as `90s`, `30m`, or `1h30m`.
 -  **Zero Bloat:** Written in 100% safe Rust. Starts in 10ms, takes ~12MB of RAM, and delegates audio decoding to the rock-solid `mpv`.
 -  **Sister-Approved Universal Compatibility:** Works seamlessly out of the box on Linux Mint, Ubuntu, Debian, Arch, Fedora, and macOS.
 
@@ -131,6 +133,10 @@ cd hakfm-TUI
 | `↑` / `k`, `↓` / `j` | Navigate station list |
 | `Enter` | Tune in & play selected station |
 | `Space` | Pause / resume playback |
+| Media `Play` / `Pause` / `Play/Pause` | Play, pause, or toggle playback, including in the background |
+| Media `Next` / `Previous` | Next / previous station in the list used to start playback |
+| Media `Stop` | Stop playback |
+| `p` | Set, replace, or cancel the sleep timer |
 | `←` / `h`, `→` / `l` | Previous / next station |
 | `Tab` / `1` / `2` | Toggle views (**Library** ⟷ **Internet-Radio**) |
 | `i` | Search [internet-radio.com](https://www.internet-radio.com/) from inside the TUI |
@@ -145,6 +151,24 @@ cd hakfm-TUI
 | `r` | Reset all search filters |
 | `?` | Keyboard shortcut cheat sheet |
 | `q` / `Esc` | Quit like a civilized hacker |
+
+---
+
+### Sleep timer
+
+Press **`p`**, enter a duration, then press **Enter**. A bare number means minutes (`30` = 30 minutes); suffixes allow seconds, minutes, or hours (`90s`, `30m`, `1h30m`). The remaining time appears on the player card in both views.
+
+To cancel, press `p`, enter **`0`** or **`off`**, and press Enter. **Esc** closes the dialog without changing the current timer. Invalid input leaves the existing timer running and shows an error.
+
+The countdown continues while playback is paused, when switching stations, and while dialogs are open. When it expires, playback stops completely and the app stays open. A manual Stop (`x` or the media Stop button) also cancels the timer. Timers apply only to the current app session and are not restored after restarting.
+
+### System media controls
+
+On **Linux**, HAK.FM registers as `org.mpris.MediaPlayer2.hakfm` on the desktop session's D-Bus. Your desktop's media shortcuts can control it in the background; if you use `playerctl`, you can also run `playerctl --player=hakfm play-pause`, `next`, `previous`, or `stop`. No native D-Bus development package is required to build it.
+
+On **macOS**, HAK.FM publishes the station to Now Playing and listens for system media commands. Start a station first so macOS can route the media buttons to HAK.FM. Depending on your keyboard settings, you may need `Fn` with the media buttons. The app does not open a window or take focus from your terminal.
+
+Next and Previous switch **stations**, since live radio does not support skipping individual songs. They follow the station list captured when you pressed Enter, even if you later change views or filters. Terminals that forward media keys directly are also supported, including while a search or form is open. If another media app owns the system controls, select HAK.FM in your desktop's media controls or stop the competing player. Existing terminal shortcuts continue to work when system media controls are unavailable (for example, over SSH without a desktop D-Bus session).
 
 ---
 
